@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#175640">
+  <meta name="description" content="A personal expense tracker with Firebase storage, monthly budgets, category carry-forward, lending and borrowing, and Excel reports.">
+  <title>Pocket Ledger — Expense Tracker</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Pocket Ledger overview"><span class="brand-mark">p<span>l</span></span><span>Pocket Ledger<small>YOUR EVERYDAY FINANCES</small></span></a>
+    <div class="nav-caption">WORKSPACE</div>
+    <nav id="navigation" aria-label="Main navigation"></nav>
+    <div class="sidebar-note"><span class="small-dot"></span><div>Simple by design.<small>Your money, at a glance.</small></div></div>
+    <div class="sidebar-bottom"><span class="avatar">HK</span><div>Personal ledger<small>Amounts in Indian rupees</small></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-actions"><div id="save-status" class="save-status" role="status">Connecting to Firebase…</div><button id="account-button" class="button small secondary" hidden>Sign out</button></div></header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><p class="eyebrow" id="eyebrow">YOUR FINANCIAL PICTURE</p><h1 id="page-title">Overview</h1><p id="page-subtitle">A little clarity for your everyday money.</p></div><div class="period-control" id="period-control"><button class="icon-button" id="previous-month" aria-label="Previous month">‹</button><label class="month-label"><span id="calendar-icon"></span><input type="month" id="selected-month" aria-label="Selected month" min="2000-01" max="2100-12"></label><button class="icon-button" id="next-month" aria-label="Next month">›</button></div></div>
+      <div id="screen"></div>
+      <footer class="page-footer"><span>Pocket Ledger</span><span>Firebase storage · PDF processing stays on your device</span></footer>
+    </main>
+  </div>
+  <dialog id="transaction-dialog" class="modal"><form id="transaction-form"><div class="modal-heading"><div><p class="eyebrow">MONTHLY TRANSACTION</p><h2 id="transaction-title">Add a transaction</h2></div><button type="button" data-close="transaction-dialog" class="icon-button" aria-label="Close">×</button></div><div class="form-grid"><label>Date<input type="date" name="date" required></label><label>Amount (₹)<input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label><label class="full">Description (optional)<input name="description" maxlength="300" placeholder="What was this transaction for?"></label><label>Type<select name="type"><option value="expense">Expense</option><option value="income">Income</option></select></label><label>Account<select name="wallet"><option value="bank">Bank</option><option value="cash">Cash</option></select></label><label class="full" id="transaction-category-label">Category (required)<select name="category" id="transaction-category" required></select></label></div><p class="form-error" id="transaction-error" role="alert"></p><div class="modal-actions"><button type="button" data-close="transaction-dialog" class="button secondary">Cancel</button><button type="submit" class="button primary">Save transaction</button></div></form></dialog>
+  <dialog id="import-dialog" class="modal wide"><div class="modal-heading"><div><p class="eyebrow">PDF STATEMENT</p><h2>Import transactions</h2></div><button type="button" data-close="import-dialog" class="icon-button" aria-label="Close">×</button></div><div id="import-upload"><label class="upload-area" for="pdf-file"><span id="upload-icon"></span><strong>Choose your PDF statement</strong><span>Text-based bank or payment statement · Up to 40 MB</span><span class="button secondary">Choose PDF</span><input type="file" id="pdf-file" accept="application/pdf,.pdf"></label><label class="password-label">Statement password <span>(if required)</span><input type="password" id="pdf-password" autocomplete="off" placeholder="Optional"></label><p class="helper">Dates and amounts are extracted on your device. Review the entries before importing.</p><p class="form-error" id="import-error" role="alert"></p><div class="modal-actions"><button class="button primary" id="read-pdf" disabled>Read statement</button></div></div><div id="import-review" hidden></div></dialog>
+  <dialog id="loan-dialog" class="modal"><form id="loan-form"><div class="modal-heading"><div><p class="eyebrow">MONEY LENT AND BORROWED</p><h2 id="loan-title">Add entry</h2></div><button type="button" data-close="loan-dialog" class="icon-button" aria-label="Close">×</button></div><div class="form-grid"><label class="full">Name (required)<input name="name" maxlength="100" autocomplete="off" required placeholder="Person’s name"></label><label>Amount (₹, required)<input name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="0.00"></label><label>Date (optional)<input type="date" name="date"></label><label class="full">Description (optional)<input name="description" maxlength="300" placeholder="Additional details"></label></div><p id="loan-error" class="form-error" role="alert"></p><div class="modal-actions"><button type="button" data-close="loan-dialog" class="button secondary">Cancel</button><button type="submit" class="button primary">Save entry</button></div></form></dialog>
+  <dialog id="confirm-dialog" class="modal compact"><form id="confirm-form"><h2 id="confirm-title">Confirm change</h2><p id="confirm-description"></p><label id="reset-verification-label" hidden>Type RESET to confirm<input id="reset-verification" name="verification" autocomplete="off"></label><p id="confirm-error" class="form-error" role="alert"></p><div class="modal-actions"><button type="button" class="button secondary" data-close="confirm-dialog">Cancel</button><button type="submit" id="confirm-action" class="button danger">Confirm</button></div></form></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
