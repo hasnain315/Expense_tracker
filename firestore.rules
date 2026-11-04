@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.auth.uid == 'REPLACE_WITH_YOUR_FIREBASE_USER_UID';
+    }
+    match /users/{userId}/ledger/{recordId} {
+      allow read: if owner(userId);
+      allow create, update: if owner(userId) && (
+        (recordId == '__meta'
+          && request.resource.data.keys().hasOnly(['schema', 'revision', 'resetting'])
+          && request.resource.data.schema == 2
+          && request.resource.data.revision is int
+          && request.resource.data.revision > 0
+          && (!('resetting' in request.resource.data) || request.resource.data.resetting is bool))
+        || (recordId != '__meta'
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 700000)
+      );
+      allow delete: if owner(userId) && recordId != '__meta';
+    }
+    // All other document paths are denied by default.
+  }
+}
