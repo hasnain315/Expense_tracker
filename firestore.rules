@@ -4,24 +4,54 @@ service cloud.firestore {
     function owner(userId) {
       return request.auth != null
         && request.auth.uid == userId
-        && request.auth.uid == 'REPLACE_WITH_YOUR_FIREBASE_USER_UID';
+        && request.auth.uid == 'vo4E3tm2qWSkLowUyBe5TOG3Fk32';
+    }
+
+    function validMoney(value) {
+      return value is number && value >= -100000000000 && value <= 100000000000;
+    }
+    function nullableMoney(value) {
+      return value == null || validMoney(value);
+    }
+    function validRecord(data) {
+      return data.storageVersion == 3 && data.currency == 'INR' && (
+        (data.recordType == 'databaseInformation' && data.moneyUnit == 'rupees' && data.websiteStateVersion == 2)
+        || (data.recordType == 'monthlyBalances'
+          && data.month is string
+          && nullableMoney(data.openingCashInRupees)
+          && nullableMoney(data.openingBankBalanceInRupees)
+          && nullableMoney(data.tentativeExpensesInRupees)
+          && data.carryForwardResetToZero is bool)
+        || (data.recordType in ['budgetReference', 'investment', 'moneyLent', 'moneyBorrowed', 'monthlyCategoryBudget', 'carryForwardEdit', 'transaction']
+          && validMoney(data.amountInRupees) && data.amountFormatted is string)
+      );
     }
     match /users/{userId}/ledger/{recordId} {
       allow read: if owner(userId);
       allow create, update: if owner(userId) && (
         (recordId == '__meta'
-          && request.resource.data.keys().hasOnly(['schema', 'revision', 'resetting'])
-          && request.resource.data.schema == 2
-          && request.resource.data.revision is int
-          && request.resource.data.revision > 0
-          && (!('resetting' in request.resource.data) || request.resource.data.resetting is bool))
-        || (recordId != '__meta'
-          && request.resource.data.keys().hasOnly(['data'])
-          && request.resource.data.data is string
-          && request.resource.data.data.size() <= 700000)
+          && request.resource.data.keys().hasOnly(['schema', 'revision', 'currency', 'moneyUnit', 'resetting', 'pendingWrite'])
+          && request.resource.data.schema == 3
+          && request.resource.data.revision is int && request.resource.data.revision >= 0
+          && request.resource.data.currency == 'INR' && request.resource.data.moneyUnit == 'rupees'
+          && (!('resetting' in request.resource.data) || request.resource.data.resetting is bool)
+          && (!('pendingWrite' in request.resource.data) || request.resource.data.pendingWrite is map))
+        || (recordId != '__meta' && validRecord(request.resource.data))
       );
       allow delete: if owner(userId) && recordId != '__meta';
     }
-    // All other document paths are denied by default.
+    // Private, temporary native fields used to finish large updates safely.
+    match /users/{userId}/ledgerPendingWrites/{batchId} {
+      allow read, delete: if owner(userId);
+      allow create, update: if owner(userId)
+        && request.resource.data.storageVersion == 3
+        && request.resource.data.recordType == 'pendingWriteBatch'
+        && request.resource.data.operationId is string
+        && request.resource.data.batchIndex is int
+        && request.resource.data.batchCount is int
+        && request.resource.data.changes is list
+        && request.resource.data.changes.size() <= 100;
+    }
+    // Every other path is denied. Old schema-2 JSON writes are rejected.
   }
 }

@@ -1,5 +1,10 @@
 # Pocket Ledger — Firebase + GitHub Pages
 
+**Storage update v3:** Firebase now stores native fields in one document per record,
+with monetary values in rupees. The website interface and calculations are unchanged.
+For an existing installation, follow **UPGRADE-FIREBASE-STORAGE.md** first. Keep your
+existing configured `docs/firebase-config.mjs` and publish the updated rules.
+
 Your expense tracker has six screens: **Overview**, **Transactions**, **Monthly
 Budget Reference**, **Money Lent and Borrowed**, **Investment**, and **Downloads**.
 The website is static and runs on GitHub Pages. Records are saved privately in
@@ -258,12 +263,13 @@ links below and the Usage tab in your console. Keep Spark without a billing
 account to avoid automatic usage charges. Reaching a free quota can temporarily
 stop saves; the app shows the error and does not claim the change was saved.
 
-Transaction arrays are split into chunks of 100 records, avoiding a single large
-ledger document. Only changed chunks are written. Real-time updates load the
+Each financial record has its own Firestore document with native, clearly named
+fields and numeric rupee values. Only changed records are written. Real-time updates load the
 same ledger on your signed-in devices, and a revision check rejects a stale save
-instead of silently overwriting another device's changes. A very large import
-or a jump spanning over 450 changed documents must be saved in smaller steps.
-Full manual reset has its own batched path and is not subject to that limit.
+instead of silently overwriting another device's changes. Large imports and schema upgrades use private, resumable batches. The website
+continues to use exact paise arithmetic internally; database conversion occurs at
+the storage boundary. One document per record increases reads compared with the
+old chunked format, so monitor Firestore Usage for long histories and reloads.
 
 The ledger requires an internet connection for saving; there is no offline save
 queue. Firestore uses memory caching, rather than a second persistent financial
@@ -295,10 +301,11 @@ using your configured project. Run the automated checks with a current Node.js:
 npm test
 ```
 
-The 23 tests cover calculations, cross-year balances, resets, stable shared
+The 35 tests cover calculations, cross-year balances, resets, stable shared
 reference/historical snapshots, optional descriptions, mandatory categories,
 lending/borrowing validation and totals, old-data migration, PDF parsing,
-carry-only XLSX data, chunked storage, server versus cached snapshots, failed or
+carry-only XLSX data, native rupee fields and per-record documents, safe migration
+and interrupted-update recovery, server versus cached snapshots, failed or
 offline saves, revision conflicts, sign-out, and a full reset exceeding one batch.
 
 The database transport tests use a local test double, not a real Firebase account.
