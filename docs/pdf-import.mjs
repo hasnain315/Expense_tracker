@@ -20,22 +20,26 @@ export function rowsFromItems(items) {
     const y=item.transform[5],x=item.transform[4];
     let row=rows.find(r=>Math.abs(r.y-y)<2.5);
     if(!row){row={y,cells:[]};rows.push(row);}
-    row.cells.push({x,text:item.str.trim()});
+    row.cells.push({x,width:item.width||0,text:item.str.trim()});
   }
   return rows.sort((a,b)=>b.y-a.y).map(r=>({cells:r.cells.sort((a,b)=>a.x-b.x),text:r.cells.sort((a,b)=>a.x-b.x).map(c=>c.text).join(' ')}));
 }
 function headerColumns(rows) {
-  let columns={};
-  for(const row of rows) {
-    if(!/debit|withdrawal|credit|deposit|balance/i.test(row.text) || parseDate(row.text))continue;
+  for(const [index,row] of rows.entries()) {
+    if(parseDate(row.text) || /opening balance|\b(?:dr|cr) count\b|statement summary/i.test(row.text))continue;
+    const columns={};let referenceX;
     for(const cell of row.cells) {
-      const t=cell.text.toLowerCase();
-      if(/debit|withdrawal|paid out/.test(t))columns.debit=cell.x;
-      if(/credit|deposit|paid in/.test(t))columns.credit=cell.x;
-      if(/balance/.test(t))columns.balance=cell.x;
+      const t=cell.text.trim().toLowerCase(),center=cell.x+(cell.width||0)/2;
+      if(/^(?:(?:debit|withdrawal)(?:\s+(?:amount|amt\.?))?|paid out)$/.test(t))columns.debit=center;
+      if(/^(?:(?:credit|deposit)(?:\s+(?:amount|amt\.?))?|paid in)$/.test(t))columns.credit=center;
+      if(/^(?:(?:closing|running|available)\s+)?balance$/.test(t))columns.balance=center;
+      if(/^(?:chq\.?\s*\/\s*ref\.?\s*no\.?|(?:cheque|reference|ref\.?)\s*(?:no\.?|number))$/.test(t))referenceX=cell.x;
     }
+    // Use the transaction table, never the statement-summary totals. Column
+    // centers also account for short amounts aligned to the right of a column.
+    if(Object.keys(columns).length>=2 && (columns.debit!==undefined || columns.credit!==undefined))return {columns,index,referenceX};
   }
-  return columns;
+  return {columns:{},index:-1};
 }
 function amountsIn(text) {
   // Requiring decimals or a currency symbol avoids treating UPI reference IDs,
@@ -44,28 +48,41 @@ function amountsIn(text) {
   return [...text.matchAll(rx)].map(m=>({raw:m[0],index:m.index,value:Math.abs(money(m[0].replace(/INR|Rs\.?/gi,'')))}));
 }
 export function parseStatementRows(rows) {
-  const columns=headerColumns(rows);const blocks=[];let current=null;
-  for(const row of rows) {
+  const header=headerColumns(rows),columns=header.columns,colEntries=Object.entries(columns),tabular=colEntries.length>=2;
+  const blocks=[];let current=null;
+  for(const [index,row] of rows.entries()) {
+    if(tabular && index<=header.index)continue;
+    if(/^(?:page\b|total\b|\*?opening balance|\*?closing balance|statement summary|transaction statement\b|note\s*:|generated (?:on|by)\b|(?:a\/c|account) open date\b|from\s*:|to\s*:|date\s+(?:&\s*time|narration|description|particulars)\b)/i.test(row.text.trim())){current=null;continue;}
     const date=parseDate(row.text);
     if(date) {
       if(/opening balance|closing balance|balance brought|balance carried|statement (?:from|to)|period (?:from|to)/i.test(row.text)){current=null;continue;}
+      // Date ranges are statement metadata; a table transaction starts with its
+      // date cell, rather than an account-opening or statement-generation date.
+      const afterDate=row.text.slice(date.index+date.raw.length);
+      if(/^\s*(?:[-\u2013\u2014]|to\b)\s*/i.test(afterDate) && parseDate(afterDate)){current=null;continue;}
+      if(tabular && row.cells[0]?.text.trim()!==date.raw){current=null;continue;}
       current={date:date.value,rawDate:date.raw,rows:[row]};blocks.push(current);
     } else if(current && !/^(?:page\s*\d|total\b|opening balance|closing balance|statement summary)/i.test(row.text))current.rows.push(row);
   }
   const transactions=[];
   for(const block of blocks) {
-    const text=block.rows.map(r=>r.text).join(' ').replace(block.rawDate,' ').trim();
+    const descriptionEnd=header.referenceX ?? Math.min(...colEntries.map(([,x])=>x));
+    const text=(tabular?block.rows.flatMap(r=>r.cells.filter(c=>c.x<descriptionEnd && c.text!==block.rawDate).map(c=>c.text)).join(' '):block.rows.map(r=>r.text).join(' ').replace(block.rawDate,' ')).trim();
     let type=/\b(received|credited|credit\b|deposit|paid in|cr)\b/i.test(text)?'income':/\b(paid|sent|debited|debit|withdrawal|dr)\b/i.test(text)?'expense':'';
     let amount=null,chosenRaw='';
-    const colEntries=Object.entries(columns);
-    if(colEntries.length>=2) {
-      for(const row of block.rows) for(const cell of row.cells) {
+    if(tabular) {
+      amountCell: for(const row of block.rows) for(const cell of row.cells) {
         if(!/^\s*(?:₹|Rs\.?|INR)?\s*-?[\d,]+(?:\.\d{1,2})?(?:\s*(?:Cr|Dr))?\s*$/i.test(cell.text) || cell.text===block.rawDate)continue;
+        const center=cell.x+(cell.width||0)/2;
+        const column=colEntries.map(([key,x])=>({key,d:Math.abs(x-center)})).sort((a,b)=>a.d-b.d)[0];
+        // Reject reference-number and running-balance cells before parsing money.
+        if(column.d>=85 || column.key==='balance')continue;
         const found=amountsIn(cell.text);const value=found[0]?.value ?? (/^[\d,]+$/.test(cell.text)?money(cell.text):0);
         if(!value)continue;
-        const column=colEntries.map(([key,x])=>({key,d:Math.abs(x-cell.x)})).sort((a,b)=>a.d-b.d)[0];
-        if(column.d<85 && column.key!=='balance') {amount=value;type=column.key==='credit'?'income':'expense';chosenRaw=cell.text;break;}
+        amount=value;type=column.key==='credit'?'income':'expense';chosenRaw=cell.text;break amountCell;
       }
+      // A balance-only row is not a payment. Do not use the narrative fallback.
+      if(amount===null)continue;
     }
     const found=amountsIn(text);
     if(amount===null && found.length) {amount=found[0].value;chosenRaw=found[0].raw; if(/^-/.test(chosenRaw))type='expense';}
