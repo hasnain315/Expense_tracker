@@ -1,5 +1,5 @@
 import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, totals, loanTotals, carryForward, carryHistory, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs';
-import { readStatement } from './pdf-import.mjs';
+import { readStatement } from './pdf-import.mjs?v=20261105-hdfc2';
 import { createWorkbook } from './xlsx.mjs';
 import { configured, connectCloud, friendlyError } from './cloud-store.mjs';
 const $ = (selector, root=document) => root.querySelector(selector);

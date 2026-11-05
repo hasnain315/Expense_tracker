@@ -84,7 +84,9 @@ export function parseStatementRows(rows) {
       // A balance-only row is not a payment. Do not use the narrative fallback.
       if(amount===null)continue;
     }
-    const found=amountsIn(text);
+    // Once a table column supplied the amount, narration must not be parsed as
+    // money: a merchant/reference string such as RS-630565322605 is not an amount.
+    const found=amount===null?amountsIn(text):[];
     if(amount===null && found.length) {amount=found[0].value;chosenRaw=found[0].raw; if(/^-/.test(chosenRaw))type='expense';}
     if(amount===null) {
       const simple=text.match(/(?:₹|INR|Rs\.?)\s*(\d[\d,]*)\b|\b(\d{1,7})\s*(?:Cr|Dr)\b|\s(\d{1,7})\s*$/i);
