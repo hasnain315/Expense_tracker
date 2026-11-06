@@ -83,10 +83,11 @@ export function loanTotals(state,key) {
 export function totals(state,key) {
   checkMonth(key);
   const m=state.months[key];
-  // Blank opening balances inherit the previous closing account balances, also
-  // across December/January. An explicit zero is a saved manual opening value.
+  // Unsaved months and reset-only placeholders display zero account balances.
+  // Saved months keep the existing opening-balance and transaction calculation,
+  // including inheritance when a saved opening value was left blank.
   let cash=0, bank=0;
-  for (const k of Object.keys(state.months).filter(k=>k<=key).sort()) {
+  for (const k of Object.keys(state.months).filter(k=>m&&!m.carryResetOnly&&k<=key).sort()) {
     const saved=state.months[k];
     if (saved.cash!==null && saved.cash!==undefined) cash=saved.cash;
     if (saved.bank!==null && saved.bank!==undefined) bank=saved.bank;
@@ -99,7 +100,10 @@ export function totals(state,key) {
   const {lent,held}=loanTotals(state,key);
   const kept=(m?.transactions||[]).filter(t=>t.keep!==false);
   const actual=kept.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  const tentative=Number(m?.tentative||0);
+  // A saved manual amount, including zero, takes priority over the selected
+  // month's budget total. Reading the default never writes or changes records.
+  const budgets=m?.budgets??state.budgetReference;
+  const tentative=m?.tentative??budgets.reduce((sum,budget)=>sum+budget.amount,0);
   const investment=(m?.investment||[]).reduce((s,i)=>s+i.amount,0);
   const withoutInvestment=cash+bank+lent-held-tentative;
   return {cash,bank,lent,held,tentative,actual,investment,savings:withoutInvestment+investment,withoutInvestment,liquid:cash+bank-held-tentative};
@@ -132,8 +136,8 @@ export function carryForward(state,key) {
       const edited=Object.hasOwn(m.carryOverrides||{},category.id);
       const balance=edited?m.carryOverrides[category.id]:m.carryReset?0:calculated;
       if(k===key) result={...category,opening:prior,allowance,spent,calculated,balance,edited,reset:!!m.carryReset,adjustment:balance-calculated};
-      // A period-only reset keeps the next unselected month's opening balance.
-      // Its adjustment is stored only on the last month of the reset period.
+      // Read compensation saved by older versions until a new reset removes
+      // it from that point onward. New resets carry the actual closing balance.
       prior=balance+(m.carryBoundaryAdjustment?.[category.id]||0);
     }
     return result;
@@ -148,21 +152,18 @@ export function resetMonthsCarryForward(state,year,selectedMonths) {
   if(!Array.isArray(selectedMonths)||!selectedMonths.length||selectedMonths.some(value=>!/^(0?[1-9]|1[0-2])$/.test(String(value))))throw new Error('Select one or more valid months within the selected year.');
   const numbers=[...new Set(selectedMonths.map(Number))].sort((a,b)=>a-b);
   const keys=Object.keys(state.months).sort(),keyFor=number=>`${year}-${String(number).padStart(2,'0')}`;
+  const selected=new Set(numbers.map(keyFor)),first=keyFor(numbers[0]);
   const monthBudgets=key=>{
     const prior=keys.filter(k=>k<key).at(-1);
     return prior?state.months[prior].budgets:keys.length?state.months[keys[0]].budgets:state.budgetReference;
   };
-  // Capture the outgoing balance at the end of each consecutive selected run
-  // before changing anything. Missing months use their historical allowance,
-  // so an unsaved month does not accidentally adopt today's budget reference.
-  const boundaries=new Map();
-  for(let index=0;index<numbers.length;index++) {
-    if(numbers[index+1]===numbers[index]+1)continue;
-    const key=keyFor(numbers[index]),original=state.months[key]||blankMonth(monthBudgets(key));
-    const view={...state,months:{...state.months,[key]:original}};
-    boundaries.set(key,keys.some(k=>k<=key&&!state.months[k].carryResetOnly)?Object.fromEntries(carryForward(view,key).map(row=>[
-      row.id,row.balance+(original.carryBoundaryAdjustment?.[row.id]||0)
-    ])):{});
+  // Preserve the amount of later manual adjustments, rather than pinning their
+  // old absolute closing balances and blocking the updated opening balance.
+  const laterEdits=new Map();
+  for(const key of keys.filter(key=>key>first&&!selected.has(key))) {
+    if(Object.keys(state.months[key].carryOverrides||{}).length) {
+      laterEdits.set(key,new Map(carryForward(state,key).filter(row=>row.edited).map(row=>[row.id,row.adjustment])));
+    }
   }
   for(const number of numbers) {
     const key=keyFor(number);
@@ -173,9 +174,17 @@ export function resetMonthsCarryForward(state,year,selectedMonths) {
     }
     state.months[key].carryReset=true;
     state.months[key].carryOverrides={};
-    delete state.months[key].carryBoundaryAdjustment;
   }
-  for(const [key,adjustment] of boundaries)state.months[key].carryBoundaryAdjustment=adjustment;
+  // Historical compensation must not restore an old balance in a succeeding
+  // month. Earlier months, budgets and all non-carry records remain untouched.
+  for(const [key,month] of Object.entries(state.months))if(key>=first)delete month.carryBoundaryAdjustment;
+  // Process later edits in date order so each one uses the preceding month's
+  // recalculated closing balance, including across gaps and year boundaries.
+  for(const [key,adjustments] of laterEdits) {
+    for(const row of carryForward(state,key))if(adjustments.has(row.id)) {
+      state.months[key].carryOverrides[row.id]=row.calculated+adjustments.get(row.id);
+    }
+  }
 }
 function checkDate(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date||'')) throw new Error('Enter a valid date.');
