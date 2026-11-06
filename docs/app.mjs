@@ -1,7 +1,7 @@
-import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, totals, loanTotals, carryForward, carryHistory, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs';
+import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, totals, loanTotals, carryForward, carryHistory, resetYearCarryForward, resetMonthsCarryForward, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs?v=20261106-resets';
 import { readStatement } from './pdf-import.mjs?v=20261105-hdfc2';
 import { createWorkbook } from './xlsx.mjs';
-import { configured, connectCloud, friendlyError } from './cloud-store.mjs';
+import { configured, connectCloud, friendlyError } from './cloud-store.mjs?v=20261106-resets';
 const $ = (selector, root=document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const paths = {
@@ -40,6 +40,7 @@ let legacy=null;
 try {const raw=localStorage.getItem(KEY);if(raw){const saved=JSON.parse(raw);if(saved.version===1)legacy=saved;}}catch {/* Do not overwrite unreadable legacy data. */}
 let state=createState(),month=monthNow(),screen='overview',cloud=null,phase=configured?'loading':'setup',session=null,revision=0,busy=false,pendingSnapshot=null,connectionError='';
 let editingId=null,editingSnapshot=null,pendingAction=null,carryEdit=null,reviewRows=[],importName='',editingLoanId=null,loanSnapshot=null,loanKind='lent';
+let resetYear=month.slice(0,4),resetMonths=new Set();
 const current=()=>state.months[month]||{cash:null,bank:null,tentative:null,budgets:structuredClone(state.budgetReference),carryOverrides:{},carryReset:false,transactions:[]};
 const categoryOptions=(selected='')=>`<option value="">Choose category</option>${current().budgets.map(b=>`<option value="${esc(b.id)}" ${b.id===selected?'selected':''}>${esc(b.name)}</option>`).join('')}`;
 const empty=(title,description,iconName='file')=>`<div class="empty-state"><span class="empty-icon">${icon(iconName)}</span><h3>${title}</h3><p>${description}</p></div>`;
@@ -60,7 +61,7 @@ function acceptSnapshot(saved,version) {
 async function commit(change,notify='',resetAll=false) {
   if(phase!=='ready'||!cloud){toast('Connect Firebase and sign in before saving.');return false;}
   if(busy)return false;
-  const next=structuredClone(state);
+  const next=resetAll?createState():structuredClone(state);
   try {
     change(next);lockSaving(true);storageStatus('Saving to Firebase…');
     const savedRevision=await (resetAll?cloud.resetAll(revision):cloud.save(next,revision));
@@ -89,11 +90,13 @@ function renderOverview() {
 }
 function renderTransactions() {
   const m=current(),t=totals(state,month),transactions=m.transactions,kept=transactions.filter(t=>t.keep!==false);
+  const years=[...new Set([resetYear,month.slice(0,4),monthNow().slice(0,4),...Object.keys(state.months).map(k=>k.slice(0,4))])].sort().reverse();
+  const monthOptions=Array.from({length:12},(_,index)=>({number:index+1,name:new Date(2000,index,1).toLocaleDateString('en-IN',{month:'long'})}));
   const inputs=[['cash','Opening cash balance','Leave blank to use the previous closing cash balance.'],['bank','Opening bank balance','Leave blank to use the previous closing bank balance.'],['tentative','This Month’s Tentative Expenses','Your expected expenses for the selected month.']];
   return `<section class="card opening-card"><div class="card-heading"><div><h2>Monthly financial details</h2><p>${esc(monthName(month))} · Each change saves to Firebase when you leave the field.</p></div><span class="subtle-tag">${icon('calendar')} Monthly</span></div><div class="monthly-fields">${inputs.map(([key,label,hint])=>`<label>${label}<div class="currency-input"><span>₹</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="${key==='tentative'?'0.00':'Use previous closing balance'}" data-month-field="${key}" aria-label="${label}" value="${m[key]==null?'':rupees(m[key])}"></div><small>${hint}</small></label>`).join('')}${[['lent','Money Lent to Others','Sum of all current lending entries.'],['held','Other People’s Money Held by Me','Sum of all current borrowing entries.']].map(([key,label,hint])=>`<label>${label}<div class="currency-input"><span>₹</span><input readonly aria-label="${label}" value="${rupees(t[key])}"></div><small>${hint} <a href="#money">Manage entries</a></small></label>`).join('')}</div></section>
   <section class="card transaction-card"><div class="card-heading transaction-heading"><div><h2>Transactions <span class="count">${kept.length}</span></h2><p>${esc(monthName(month))} · Actual retained expenses: <strong>${fmt(t.actual)}</strong></p></div><div class="button-group"><button class="button secondary" id="open-import">${icon('upload')} Upload PDF</button><button class="button primary" id="add-transaction">${icon('plus')} Add transaction</button></div></div>${transactions.length?`<div class="table-scroll"><table class="transaction-table"><thead><tr><th class="keep-column">Keep</th><th>Date / description</th><th>Category</th><th>Account</th><th class="right">Amount</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${[...transactions].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`<tr class="${t.keep===false?'excluded':''}"><td><input class="checkbox" type="checkbox" data-keep="${esc(t.id)}" aria-label="Keep ${esc(t.description||'transaction on '+t.date)}" ${t.keep!==false?'checked':''}></td><td><strong class="transaction-description">${esc(t.description||'No description')}</strong><small>${esc(t.date)}${t.source==='PDF'?' · PDF':''}${t.keep===false?' · Excluded from calculations':''}</small></td><td><span class="category-chip">${esc(t.categoryName||'Choose a category')}${t.type==='income'?' · Income':''}</span></td><td>${icon(t.wallet)}<span>${t.wallet==='cash'?'Cash':'Bank'}</span></td><td class="right amount ${t.type==='income'?'positive':''}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</td><td><div class="row-actions"><button class="icon-button" data-edit-tx="${esc(t.id)}" aria-label="Edit ${esc(t.description||t.date)}">${icon('edit')}</button><button class="icon-button" data-remove-tx="${esc(t.id)}" aria-label="Remove ${esc(t.description||t.date)}">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table></div>`:empty('Your transactions for this month','Upload a PDF statement or add a transaction.','transactions')}</section>
   <section class="card"><div class="card-heading"><div><h2>Category carry-forward</h2><p>Balances continue across every month and year. They reset only when you choose.</p></div><button class="button secondary" id="reset-carry">Reset carry-forward</button></div><p class="carry-explanation">Previous carry-forward + this month’s category budget − actual retained category expenses = closing carry-forward. A saved edit or manual reset replaces the closing balance.</p>${renderCarry()}</section>
-  <section class="card reset-card"><div><h2>Manual reset</h2><p>Reset this month’s inputs and transactions, or clear the whole ledger. Nothing resets automatically at year-end.</p></div><div class="button-group"><button class="button secondary" id="reset-month">Reset selected month’s data</button><button class="button danger-outline" id="reset-all">Reset all data</button>${m.carryReset?'<button class="button secondary" id="undo-carry-reset">Undo this month’s carry-forward reset</button>':''}</div></section>`;
+  <section class="card reset-card"><div><h2>Manual reset</h2><p>Switching months or years preserves your saved data. Nothing resets automatically.</p></div><label class="reset-year-control" for="reset-year">Year for carry-forward reset<select id="reset-year">${years.map(year=>`<option value="${year}" ${year===resetYear?'selected':''}>${year}</option>`).join('')}</select></label><div class="reset-options"><div class="reset-option"><button class="button secondary" id="reset-year-carry" aria-describedby="reset-year-description">Reset Selected Year Carry-Forward Data</button><p id="reset-year-description">Resets category carry-forward balances for the selected year only. All transactions and other data remain unchanged.</p></div><div class="reset-option"><fieldset class="reset-month-selection"><legend>Choose one or more months in ${resetYear}</legend><div class="reset-month-grid">${monthOptions.map(({number,name})=>`<label><input type="checkbox" data-reset-month="${number}" ${resetMonths.has(number)?'checked':''}><span>${name}</span></label>`).join('')}</div></fieldset><button class="button secondary" id="reset-months-carry" aria-describedby="reset-months-description" ${resetMonths.size?'':'disabled'}>Reset Selected Months Carry-Forward Data</button><p id="reset-months-description">Resets category carry-forward balances for the selected months only. All transactions and other data remain unchanged.</p></div><div class="reset-option"><button class="button danger-outline" id="reset-all" aria-describedby="reset-all-description">Reset All Data</button><p id="reset-all-description">Permanently deletes all saved data across every month and year. This action cannot be undone.</p></div></div>${m.carryReset?'<div class="button-group"><button class="button secondary" id="undo-carry-reset">Undo this month’s carry-forward reset</button></div>':''}</section>`;
 }
 function renderCarry() {
   const rows=carryForward(state,month);
@@ -134,7 +137,8 @@ function render() {
 }
 function selectMonth(value) {
   if(!/^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(value)){toast('Choose a month between 2000 and 2100.');return;}
-  month=value;carryEdit=null;render();
+  if(busy)return;
+  month=value;resetYear=value.slice(0,4);resetMonths.clear();carryEdit=null;render();
 }
 $('#calendar-icon').innerHTML=icon('calendar');$('#upload-icon').innerHTML=icon('upload');
 $('#selected-month').addEventListener('change',event=>selectMonth(event.target.value));
@@ -181,9 +185,22 @@ function confirmAction(action,title,description,label,requiresText=false) {
   $('#reset-verification-label').hidden=!requiresText;$('#reset-verification').value='';$('#reset-verification').required=requiresText;
   $('#confirm-error').textContent='';$('#confirm-dialog').showModal();
 }
+function clearBrowserFinancialData() {
+  legacy=null;reviewRows=[];importName='';editingId=null;editingSnapshot=null;editingLoanId=null;loanSnapshot=null;
+  resetMonths.clear();resetYear=month.slice(0,4);
+  try{localStorage.removeItem(KEY);}catch{/* Browser storage may be unavailable. */}
+  for(const id of ['transaction-form','loan-form'])$('#'+id).reset();
+  $('#import-review').innerHTML='';$('#pdf-file').value='';$('#pdf-password').value='';
+}
 document.addEventListener('change',async event=>{
   const el=event.target;
   if(el.id==='download-year'||el.id==='download-month')prepareDownloads();
+  if(el.id==='reset-year'){resetYear=el.value;resetMonths.clear();render();}
+  if(el.dataset.resetMonth) {
+    const number=Number(el.dataset.resetMonth);
+    if(el.checked)resetMonths.add(number);else resetMonths.delete(number);
+    $('#reset-months-carry').disabled=!resetMonths.size;
+  }
   if(el.dataset.monthField) {
     try {
       const amount=el.value===''?null:money(el.value);
@@ -219,8 +236,17 @@ document.addEventListener('click',async event=>{
   if(el.dataset.resetCarry && await commit(s=>{delete ensureMonth(s,month).carryOverrides[el.dataset.resetCarry];},'Manual edit removed.')){carryEdit=null;render();}
   if(el.id==='reset-carry')confirmAction({kind:'carry',month},'Reset category carry-forward?',`All category closing balances for ${monthName(month)} will become zero. Earlier records are kept. Later months will carry forward from zero, subject to any later saved edits or resets.`,'Reset carry-forward');
   if(el.id==='undo-carry-reset')confirmAction({kind:'undo-carry',month},'Undo this month’s reset?','Balances will be recalculated from the earlier months. Individual saved edits remain in place.','Undo reset');
-  if(el.id==='reset-month')confirmAction({kind:'month',month},'Reset selected month’s data?',`This deletes transactions and clears opening balances, tentative expenses, and carry-forward edits for ${monthName(month)}. The month will use the shared budget reference. Lending, borrowing, investments and other months are kept. Later calculated balances may change.`,'Reset month',true);
-  if(el.id==='reset-all')confirmAction({kind:'all'},'Reset all data?','This permanently clears all months, transactions, budgets, carry-forward edits, investments and lending/borrowing entries from this account. This cannot be undone. Your sign-in account will remain.','Reset all data',true);
+  if(el.id==='reset-year-carry') {
+    const year=$('#reset-year').value;
+    confirmAction({kind:'year-carry',year},`Reset ${year} carry-forward data?`,`This sets every category’s closing carry-forward balance to zero for all 12 months of ${year} and clears that year’s manual carry-forward edits. Transactions, monthly budget references, cash and bank inputs, lending, borrowing, investments, settings and other years remain unchanged.`,'Reset year carry-forward');
+  }
+  if(el.id==='reset-months-carry') {
+    const year=$('#reset-year').value,months=[...resetMonths].sort((a,b)=>a-b);
+    if(!months.length){toast('Select one or more months to reset.');return;}
+    const names=months.map(number=>monthName(`${year}-${String(number).padStart(2,'0')}`)).join(', ');
+    confirmAction({kind:'months-carry',year,months},'Reset selected months’ carry-forward?',`This sets every category’s closing carry-forward balance to zero and clears manual carry-forward edits for: ${names}. All transactions, monthly budget references, other financial records and carry-forward balances outside these selected months remain unchanged.`,'Reset selected months');
+  }
+  if(el.id==='reset-all')confirmAction({kind:'all'},'Permanently delete all saved data?','WARNING: This permanently deletes all saved application data across every month and year, including transactions, category carry-forward balances, monthly budget references, lending, borrowing, investments, financial records, saved financial settings and older records saved in this browser. This action cannot be undone. Your sign-in account remains. Type RESET and confirm to delete everything.','Permanently delete all data',true);
   if(el.id==='import-legacy')confirmAction({kind:'legacy'},'Import the older browser records?','Records saved on this browser will be copied to your empty Firebase ledger. Earlier monthly lent and held totals become one opening entry in each section. Review and assign the correct names afterwards.','Import records');
   if(el.id==='apply-budget' && await commit(s=>applyBudgetReference(s,month),'Reference applied to the selected month.'))render();
   if(el.dataset.removeBudget) {
@@ -242,10 +268,11 @@ $('#confirm-form').addEventListener('submit',async event=>{
     if(action.kind==='loan')s.moneyEntries=s.moneyEntries.filter(e=>e.id!==action.id);
     if(action.kind==='carry'){const m=ensureMonth(s,action.month);m.carryReset=true;m.carryOverrides={};}
     if(action.kind==='undo-carry')ensureMonth(s,action.month).carryReset=false;
-    if(action.kind==='month'){delete s.months[action.month];ensureMonth(s,action.month);}
-    if(action.kind==='all')Object.assign(s,createState());
+    if(action.kind==='year-carry')resetYearCarryForward(s,action.year);
+    if(action.kind==='months-carry')resetMonthsCarryForward(s,action.year,action.months);
     if(action.kind==='legacy'){if(hasRecords(s))throw Error('The cloud ledger already has data. The older records have not been imported.');Object.assign(s,migrateLegacy(legacy));}
-  },action.kind==='legacy'?'Older records imported. Review your lending and borrowing entries.':'Your changes have been saved.',action.kind==='all')) {
+  },action.kind==='legacy'?'Older records imported. Review your lending and borrowing entries.':action.kind==='year-carry'?`Category carry-forward reset for ${action.year}. Transactions and other years are unchanged.`:action.kind==='months-carry'?`Category carry-forward reset for ${action.months.length} selected month(s) in ${action.year}. All other data is unchanged.`:action.kind==='all'?'All saved application data has been permanently deleted.':'Your changes have been saved.',action.kind==='all')) {
+    if(action.kind==='all')clearBrowserFinancialData();
     if(action.kind==='legacy')legacy=null;
     $('#confirm-dialog').close();pendingAction=null;carryEdit=null;render();
   }
@@ -342,6 +369,7 @@ if(configured) {
     cloud=await connectCloud({
       onSession:user=>{session=user;state=createState();revision=0;pendingSnapshot=null;phase=user?'loading':'signed-out';connectionError='';for(const d of document.querySelectorAll('dialog[open]'))d.close();render();if(!user)storageStatus('Sign in to access your records');},
       onData:acceptSnapshot,
+      onReset:clearBrowserFinancialData,
       onStatus:(message,error=false)=>{storageStatus(message,error);if(error){connectionError=message;phase='loading';render();}}
     });
   }catch(error){phase='loading';connectionError=friendlyError(error);storageStatus(connectionError,true);render();}

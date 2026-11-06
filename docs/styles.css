@@ -86,6 +86,19 @@ dialog{border:1px solid var(--line);border-radius:17px;color:var(--ink);padding:
 .reset-card p{font-size:12px;line-height:1.8;color:#6d7964}
 .danger-outline{background:transparent;color:#9b4234;border:1px solid #dbb4aa}
 .reset-card .button-group{flex-wrap:wrap}
+.reset-options{display:grid;gap:22px}
+.reset-option{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.reset-option+.reset-option{border-top:1px solid var(--line);padding-top:22px}
+.reset-year-control{display:grid;gap:7px;font-size:12px;max-width:260px}
+.reset-year-control select{min-width:150px}
+.reset-option .button{max-width:100%;white-space:normal;text-align:center;min-height:44px}
+.reset-option p{max-width:650px}
+.reset-month-selection{border:0;padding:0;margin:0;min-width:0;width:100%;max-width:650px}
+.reset-month-selection legend{font-size:12px;font-weight:550;margin-bottom:9px}
+.reset-month-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:5px 12px}
+.reset-month-grid label{display:flex;align-items:center;gap:9px;min-height:44px;font-size:12px;cursor:pointer}
+.reset-month-grid input{flex-shrink:0}
+#reset-months-carry:disabled{cursor:not-allowed}
 .reference-apply{border-top:1px solid var(--line);padding:20px 24px;display:flex;align-items:center;gap:20px;justify-content:space-between}
 .reference-apply p{font-size:12px;line-height:1.8;max-width:500px}
 .reference-apply .button{flex-shrink:0}

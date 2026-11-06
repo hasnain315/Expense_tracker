@@ -1,6 +1,6 @@
 import { firebaseConfig, ownerUid } from './firebase-config.mjs';
-import { uid } from './core.mjs';
-import { encodeState, decodeState, diffRecords, migrationTarget } from './storage-codec.mjs';
+import { uid } from './core.mjs?v=20261106-resets';
+import { encodeState, decodeState, diffRecords, migrationTarget } from './storage-codec.mjs?v=20261106-resets';
 
 export const configured=!!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.authDomain && firebaseConfig.appId && ownerUid);
 const SDK='https://www.gstatic.com/firebasejs/12.10.0';
@@ -27,7 +27,7 @@ function splitChanges(changes) {
   return result;
 }
 const metadata=(revision,extra={})=>({schema:3,revision,currency:'INR',moneyUnit:'rupees',...extra});
-export async function connectCloud({onSession,onData,onStatus},dependencies=null) {
+export async function connectCloud({onSession,onData,onStatus,onReset=()=>{}},dependencies=null) {
   if(!configured&&!dependencies)return null;
   const settings=dependencies?.config||firebaseConfig,expectedOwner=dependencies?.ownerUid||ownerUid;
   const [appSDK,authSDK,dbSDK]=dependencies?.sdk||await Promise.all([
@@ -175,7 +175,7 @@ export async function connectCloud({onSession,onData,onStatus},dependencies=null
       try {
         const meta=snapshot.docs.find(d=>d.id==='__meta')?.data();
         if(meta&&![2,3].includes(meta.schema))throw new Error('Unsupported database version. Existing records have been kept.');
-        if(meta?.resetting){onStatus('Completing your requested manual reset…');maintain(()=>finishReset(sessionUser,sessionGeneration),sessionGeneration);return;}
+        if(meta?.resetting){onReset();onStatus('Completing your requested manual reset…');maintain(()=>finishReset(sessionUser,sessionGeneration),sessionGeneration);return;}
         if(meta?.pendingWrite){onStatus(meta.pendingWrite.purpose==='migration'?'Converting existing records to readable Firebase fields…':'Finishing your saved database update…');maintain(()=>resumeWrite(sessionUser,sessionGeneration,meta.pendingWrite.operationId),sessionGeneration);return;}
         const payload=new Map(snapshot.docs.filter(d=>d.id!=='__meta').map(d=>[d.id,d.data()]));
         if(meta?.schema===2||(!meta&&[...payload.values()].some(v=>v?.storageVersion!==3&&typeof v?.data==='string'))) {
@@ -205,6 +205,7 @@ export async function connectCloud({onSession,onData,onStatus},dependencies=null
         const meta=(await transaction.get(metaRef(user))).data();assertWritable(meta,expectedRevision);
         transaction.set(metaRef(user),metadata(expectedRevision+1,{resetting:true}));
       });
+      onReset();
       await finishReset(user,sessionGeneration);return expectedRevision+2;
     }
   };

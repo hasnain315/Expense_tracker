@@ -1,4 +1,4 @@
-import { createState, checkMonth } from './core.mjs';
+import { createState, checkMonth } from './core.mjs?v=20261106-resets';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.
@@ -56,12 +56,15 @@ export function encodeState(state) {
   });
   for(const [key,m] of Object.entries(state.months).sort(([a],[b])=>a.localeCompare(b))) {
     checkMonth(key);
-    const {cash,bank,tentative,budgets,carryOverrides,carryReset,transactions,...extra}=m;
+    const {cash,bank,tentative,budgets,carryOverrides,carryReset,carryBoundaryAdjustment,transactions,...extra}=m;
     add(`month__${key}`,{...extra,...base('monthlyBalances'),month:key,
       openingCashInRupees:toRupees(cash),openingCashFormatted:formatted(cash),
       openingBankBalanceInRupees:toRupees(bank),openingBankBalanceFormatted:formatted(bank),
       tentativeExpensesInRupees:toRupees(tentative),tentativeExpensesFormatted:formatted(tentative),
-      carryForwardResetToZero:!!carryReset});
+      carryForwardResetToZero:!!carryReset,
+      ...(carryBoundaryAdjustment?{carryForwardBoundaryAdjustmentInRupees:Object.fromEntries(
+        Object.entries(carryBoundaryAdjustment).map(([id,amount])=>[id,toRupees(amount)])
+      )}:{})});
     budgets.forEach((row,position)=>{
       const {id,amount,...rest}=row;
       add(`category-budget__${key}__${safeId(id)}`,{...rest,...base('monthlyCategoryBudget'),month:key,categoryId:id,position,...amountFields(amount)});
@@ -95,10 +98,17 @@ export function decodeState(records) {
   for(const fields of records.values()) {
     if(!fields||typeof fields!=='object'||fields.storageVersion!==3||fields.currency!=='INR')throw new Error('A Firebase record uses an unsupported format.');
     if(fields.recordType==='monthlyBalances') {
-      const {month,openingCashInRupees,openingCashFormatted,openingBankBalanceInRupees,openingBankBalanceFormatted,tentativeExpensesInRupees,tentativeExpensesFormatted,carryForwardResetToZero,...extra}=clean(fields);
+      const {month,openingCashInRupees,openingCashFormatted,openingBankBalanceInRupees,openingBankBalanceFormatted,tentativeExpensesInRupees,tentativeExpensesFormatted,carryForwardResetToZero,carryForwardBoundaryAdjustmentInRupees,...extra}=clean(fields);
       checkMonth(month);
       if(state.months[month])throw new Error('A month appears more than once in Firebase.');
       state.months[month]={...extra,cash:fromRupees(openingCashInRupees),bank:fromRupees(openingBankBalanceInRupees),tentative:fromRupees(tentativeExpensesInRupees),budgets:[],carryOverrides:{},carryReset:!!carryForwardResetToZero,transactions:[]};
+      if(carryForwardBoundaryAdjustmentInRupees!==undefined) {
+        if(!carryForwardBoundaryAdjustmentInRupees||typeof carryForwardBoundaryAdjustmentInRupees!=='object'||Array.isArray(carryForwardBoundaryAdjustmentInRupees))throw new Error('A carry-forward reset is invalid. Existing records have been kept.');
+        state.months[month].carryBoundaryAdjustment=Object.fromEntries(Object.entries(carryForwardBoundaryAdjustmentInRupees).map(([id,amount])=>{
+          if(amount===null)throw new Error('A carry-forward reset amount is invalid.');
+          return [id,fromRupees(amount)];
+        }));
+      }
     }
   }
   for(const [documentId,fields] of records) {
