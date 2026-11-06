@@ -279,7 +279,9 @@ input[type=checkbox]{accent-color:var(--green)}
 
 .button[aria-disabled="true"]{opacity:.55;cursor:default}
 
-/* The estimate uses the same monthly field on Overview and Transactions. */
+/* Optional monthly estimate is editable only on Monthly Budget Reference. */
+.tentative-budget-card{margin:0 0 22px}
+.tentative-budget-card #tentative-expenses-form{max-width:580px}
 #tentative-expenses-form{display:flex;align-items:center;gap:12px;margin-top:14px}
 #tentative-expenses-form .currency-input{flex:1;min-width:0;position:relative}
 #tentative-expenses-form input{width:100%;min-width:0;font-size:22px;font-weight:600;color:var(--green);padding:12px 12px 12px 30px}
