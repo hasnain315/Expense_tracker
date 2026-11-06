@@ -1,5 +1,5 @@
 // All stored money is integer paise. Monthly budgets are historical snapshots;
-// budgetReference and outstanding loans are shared across the whole ledger.
+// budgetReference is shared; investments and outstanding loans belong to a month.
 export const FIELDS = ['cash', 'bank', 'lent', 'held', 'tentative'];
 export const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export function money(value) {
@@ -14,9 +14,7 @@ export const monthName = month => new Date(`${month}-01T12:00:00`).toLocaleDateS
 const copy = value => structuredClone(value);
 const defaultBudgets = () => [['food','Food & groceries'],['transport','Transport'],['bills','Bills & utilities'],['health','Health'],['shopping','Shopping'],['other','Other']].map(([id,name]) => ({id,name,amount:0}));
 export function createState() {
-  return {version:2, months:{}, budgetReference:defaultBudgets(), moneyEntries:[], investment:[
-    {id:'gold',name:'Gold',amount:0}, {id:'mutual-funds',name:'Mutual funds',amount:0}
-  ]};
+  return {version:3, months:{}, budgetReference:defaultBudgets()};
 }
 export function checkMonth(key) {
   if (!/^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(key)) throw new Error('Choose a month between 2000 and 2100.');
@@ -26,7 +24,34 @@ function nextMonth(key) {
   if (++m===13) {y++;m=1;}
   return `${y}-${String(m).padStart(2,'0')}`;
 }
-const blankMonth = budgets => ({cash:null,bank:null,tentative:null,budgets:copy(budgets),carryOverrides:{},carryReset:false,transactions:[]});
+const blankMonth = budgets => ({cash:null,bank:null,tentative:null,budgets:copy(budgets),carryOverrides:{},carryReset:false,transactions:[],investment:[],moneyEntries:[]});
+// Reading a month is deliberately side-effect free. Viewing an unsaved month
+// must never create records, copy another month's entries, or activate resets.
+export function getMonth(state,key) {
+  checkMonth(key);
+  return state.months[key] || blankMonth(state.budgetReference);
+}
+export function migrateMonthlyRecords(previous) {
+  if(previous?.version===3)return copy(previous);
+  if(previous?.version!==2||!previous.months||!Array.isArray(previous.investment)||!Array.isArray(previous.moneyEntries))throw new Error('The older monthly records could not be read. Existing records have been kept.');
+  const {investment,moneyEntries,...state}=copy(previous);
+  state.version=3;
+  for(const [key,m] of Object.entries(state.months)) {
+    checkMonth(key);
+    m.investment??=[];m.moneyEntries??=[];
+  }
+  // The old app stored one shared set, with no historical month information.
+  // Preserve it once in a fixed month before any screen or month is selected.
+  // Reset-only placeholders must not claim older financial records.
+  if(investment.length||moneyEntries.length) {
+    const key=Object.keys(state.months).filter(k=>!state.months[k].carryResetOnly).sort().at(-1)||monthNow();
+    const m=state.months[key]||=blankMonth(state.budgetReference);
+    if(m.investment.length||m.moneyEntries.length)throw new Error('Older shared entries conflict with saved monthly entries. Existing records have been kept.');
+    m.investment=investment;m.moneyEntries=moneyEntries;
+    delete m.carryResetOnly;
+  }
+  return state;
+}
 export function ensureMonth(state,key) {
   checkMonth(key);
   if (!state.months[key]) {
@@ -52,8 +77,8 @@ export function applyBudgetReference(state,key) {
   month.budgets=copy(state.budgetReference);
   for (const t of month.transactions) if (t.category) t.categoryName=month.budgets.find(b=>b.id===t.category)?.name || t.categoryName;
 }
-export function loanTotals(state) {
-  return state.moneyEntries.reduce((sum,e)=>{sum[e.kind==='lent'?'lent':'held']+=e.amount;return sum;},{lent:0,held:0});
+export function loanTotals(state,key) {
+  return getMonth(state,key).moneyEntries.reduce((sum,e)=>{sum[e.kind==='lent'?'lent':'held']+=e.amount;return sum;},{lent:0,held:0});
 }
 export function totals(state,key) {
   checkMonth(key);
@@ -71,11 +96,11 @@ export function totals(state,key) {
       if (tx.wallet==='bank') bank+=delta;
     }
   }
-  const {lent,held}=loanTotals(state);
+  const {lent,held}=loanTotals(state,key);
   const kept=(m?.transactions||[]).filter(t=>t.keep!==false);
   const actual=kept.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
   const tentative=Number(m?.tentative||0);
-  const investment=state.investment.reduce((s,i)=>s+i.amount,0);
+  const investment=(m?.investment||[]).reduce((s,i)=>s+i.amount,0);
   const withoutInvestment=cash+bank+lent-held-tentative;
   return {cash,bank,lent,held,tentative,actual,investment,savings:withoutInvestment+investment,withoutInvestment,liquid:cash+bank-held-tentative};
 }
@@ -183,22 +208,22 @@ export function history(state,mode='all',selected='') {
 export function migrateLegacy(legacy) {
   if(legacy?.version!==1 || !legacy.months || !Array.isArray(legacy.investment)) throw new Error('The older browser records could not be read.');
   const s=createState(),keys=Object.keys(legacy.months).sort();
-  s.investment=copy(legacy.investment);
   s.budgetReference=copy(keys.length?legacy.months[keys.at(-1)].budgets:s.budgetReference);
   for(const key of keys) {
     checkMonth(key);
     const {lent,held,...saved}=legacy.months[key];
     s.months[key]={...blankMonth(saved.budgets),...copy(saved)};
+    for(const [amount,kind,label] of [[lent,'lent','Opening lending balance (migrated)'],[held,'borrowed','Opening borrowing balance (migrated)']]) {
+      if(Number(amount)>0)s.months[key].moneyEntries.push({id:uid(),kind,name:label,amount:Number(amount),date:'',description:'Imported from this month’s saved total. Edit this entry to assign the amount to the correct person.'});
+    }
   }
-  // Legacy lent/held fields were monthly snapshots, not separate loans. Use the
-  // latest nonblank total once, so older copies do not multiply outstanding debt.
-  for(const [field,kind,label] of [['lent','lent','Opening lending balance (migrated)'],['held','borrowed','Opening borrowing balance (migrated)']]) {
-    const key=keys.filter(k=>legacy.months[k][field]!==null && legacy.months[k][field]!==undefined).at(-1);
-    const amount=key?Number(legacy.months[key][field]):0;
-    if(amount>0)s.moneyEntries.push({id:uid(),kind,name:label,amount,date:'',description:'Imported from the latest saved monthly total. Edit this entry to assign the amount to the correct person.'});
+  if(legacy.investment.length) {
+    const key=keys.at(-1)||monthNow();
+    const m=s.months[key]||=blankMonth(s.budgetReference);
+    m.investment=copy(legacy.investment);
   }
   return s;
 }
 export function hasRecords(state) {
-  return state.moneyEntries.length>0 || state.investment.some(i=>i.amount!==0) || state.budgetReference.some(b=>b.amount!==0) || Object.keys(state.months).length>0;
+  return state.budgetReference.some(b=>b.amount!==0) || Object.keys(state.months).length>0;
 }

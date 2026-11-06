@@ -1,4 +1,4 @@
-import { createState, checkMonth } from './core.mjs?v=20261106-resets';
+import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261106-monthly-guide';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.
@@ -32,31 +32,22 @@ const formatted=paise=>paise===null?'Not entered':`${paise<0?'-':''}₹${(Math.a
 const amountFields=paise=>({amountInRupees:toRupees(paise),amountFormatted:formatted(paise)});
 const base=recordType=>({storageVersion:STORAGE_VERSION,recordType,currency:'INR'});
 export function encodeState(state) {
-  if(state.version!==2)throw new Error('Unsupported website ledger version.');
+  if(state.version!==3)throw new Error('Unsupported website ledger version.');
   const records=new Map();
   const add=(id,fields)=>{
     if(records.has(id))throw new Error('Two records have the same identifier. No changes have been saved.');
     if(encoder.encode(JSON.stringify(fields)).length>700000)throw new Error('A record is too large to save. Shorten its description.');
     records.set(id,fields);
   };
-  add(INFORMATION_DOCUMENT,{...base('databaseInformation'),websiteStateVersion:2,moneyUnit:'rupees',decimalPlaces:2,
+  add(INFORMATION_DOCUMENT,{...base('databaseInformation'),websiteStateVersion:3,moneyUnit:'rupees',decimalPlaces:2,
     note:'Each document is one record. Amount fields ending InRupees are numeric INR values. Formatted fields show two decimal places.'});
   state.budgetReference.forEach((row,position)=>{
     const {id,amount,...rest}=row;
     add(`budget-reference__${safeId(id)}`,{...rest,...base('budgetReference'),categoryId:id,position,...amountFields(amount)});
   });
-  state.investment.forEach((row,position)=>{
-    const {id,amount,...rest}=row;
-    add(`investment__${safeId(id)}`,{...rest,...base('investment'),investmentId:id,position,...amountFields(amount)});
-  });
-  state.moneyEntries.forEach((row,position)=>{
-    const {id,kind,amount,...rest}=row;
-    if(!['lent','borrowed'].includes(kind))throw new Error('A lending or borrowing entry has an invalid type.');
-    add(`money-${kind}__${safeId(id)}`,{...rest,...base(kind==='lent'?'moneyLent':'moneyBorrowed'),entryId:id,position,...amountFields(amount)});
-  });
   for(const [key,m] of Object.entries(state.months).sort(([a],[b])=>a.localeCompare(b))) {
     checkMonth(key);
-    const {cash,bank,tentative,budgets,carryOverrides,carryReset,carryBoundaryAdjustment,transactions,...extra}=m;
+    const {cash,bank,tentative,budgets,carryOverrides,carryReset,carryBoundaryAdjustment,transactions,investment,moneyEntries,...extra}=m;
     add(`month__${key}`,{...extra,...base('monthlyBalances'),month:key,
       openingCashInRupees:toRupees(cash),openingCashFormatted:formatted(cash),
       openingBankBalanceInRupees:toRupees(bank),openingBankBalanceFormatted:formatted(bank),
@@ -65,6 +56,15 @@ export function encodeState(state) {
       ...(carryBoundaryAdjustment?{carryForwardBoundaryAdjustmentInRupees:Object.fromEntries(
         Object.entries(carryBoundaryAdjustment).map(([id,amount])=>[id,toRupees(amount)])
       )}:{})});
+    investment.forEach((row,position)=>{
+      const {id,amount,...rest}=row;
+      add(`investment__${key}__${safeId(id)}`,{...rest,...base('investment'),month:key,investmentId:id,position,...amountFields(amount)});
+    });
+    moneyEntries.forEach((row,position)=>{
+      const {id,kind,amount,...rest}=row;
+      if(!['lent','borrowed'].includes(kind))throw new Error('A lending or borrowing entry has an invalid type.');
+      add(`money-${kind}__${key}__${safeId(id)}`,{...rest,...base(kind==='lent'?'moneyLent':'moneyBorrowed'),month:key,entryId:id,position,...amountFields(amount)});
+    });
     budgets.forEach((row,position)=>{
       const {id,amount,...rest}=row;
       add(`category-budget__${key}__${safeId(id)}`,{...rest,...base('monthlyCategoryBudget'),month:key,categoryId:id,position,...amountFields(amount)});
@@ -92,16 +92,17 @@ export function decodeState(records) {
   if(!records.size)return createState();
   if(!records.has(INFORMATION_DOCUMENT))throw new Error('Database information is missing. Existing records have not been overwritten.');
   const info=records.get(INFORMATION_DOCUMENT);
-  if(info.storageVersion!==3||info.websiteStateVersion!==2||info.moneyUnit!=='rupees'||info.currency!=='INR')throw new Error('Unsupported Firebase storage format.');
-  const state=createState(),reference=[],investments=[],entries=[],monthlyBudgets=new Map(),transactions=new Map();
-  state.budgetReference=[];state.investment=[];
+  if(info.storageVersion!==3||![2,3].includes(info.websiteStateVersion)||info.moneyUnit!=='rupees'||info.currency!=='INR')throw new Error('Unsupported Firebase storage format.');
+  const legacy=info.websiteStateVersion===2;
+  const state=createState(),reference=[],investments=new Map(),entries=new Map(),sharedInvestments=[],sharedEntries=[],monthlyBudgets=new Map(),transactions=new Map();
+  state.budgetReference=[];
   for(const fields of records.values()) {
     if(!fields||typeof fields!=='object'||fields.storageVersion!==3||fields.currency!=='INR')throw new Error('A Firebase record uses an unsupported format.');
     if(fields.recordType==='monthlyBalances') {
       const {month,openingCashInRupees,openingCashFormatted,openingBankBalanceInRupees,openingBankBalanceFormatted,tentativeExpensesInRupees,tentativeExpensesFormatted,carryForwardResetToZero,carryForwardBoundaryAdjustmentInRupees,...extra}=clean(fields);
       checkMonth(month);
       if(state.months[month])throw new Error('A month appears more than once in Firebase.');
-      state.months[month]={...extra,cash:fromRupees(openingCashInRupees),bank:fromRupees(openingBankBalanceInRupees),tentative:fromRupees(tentativeExpensesInRupees),budgets:[],carryOverrides:{},carryReset:!!carryForwardResetToZero,transactions:[]};
+      state.months[month]={...extra,cash:fromRupees(openingCashInRupees),bank:fromRupees(openingBankBalanceInRupees),tentative:fromRupees(tentativeExpensesInRupees),budgets:[],carryOverrides:{},carryReset:!!carryForwardResetToZero,transactions:[],investment:[],moneyEntries:[]};
       if(carryForwardBoundaryAdjustmentInRupees!==undefined) {
         if(!carryForwardBoundaryAdjustmentInRupees||typeof carryForwardBoundaryAdjustmentInRupees!=='object'||Array.isArray(carryForwardBoundaryAdjustmentInRupees))throw new Error('A carry-forward reset is invalid. Existing records have been kept.');
         state.months[month].carryBoundaryAdjustment=Object.fromEntries(Object.entries(carryForwardBoundaryAdjustmentInRupees).map(([id,amount])=>{
@@ -120,11 +121,23 @@ export function decodeState(records) {
       const {categoryId,...details}=rest;
       reference.push({position,value:{...details,id:categoryId,amount:fromRupees(fields.amountInRupees)}});
     } else if(type==='investment') {
-      const {investmentId,...details}=rest;
-      investments.push({position,value:{...details,id:investmentId,amount:fromRupees(fields.amountInRupees)}});
+      const {investmentId,month,...details}=rest;
+      const row={position,value:{...details,id:investmentId,amount:fromRupees(fields.amountInRupees)}};
+      if(legacy&&month===undefined)sharedInvestments.push(row);
+      else {
+        checkMonth(month);
+        if(!state.months[month])throw new Error('An investment is missing its month. Existing records have been kept.');
+        const list=investments.get(month)||[];list.push(row);investments.set(month,list);
+      }
     } else if(type==='moneyLent'||type==='moneyBorrowed') {
-      const {entryId,...details}=rest;
-      entries.push({position,value:{...details,id:entryId,kind:type==='moneyLent'?'lent':'borrowed',amount:fromRupees(fields.amountInRupees)}});
+      const {entryId,month,...details}=rest;
+      const row={position,value:{...details,id:entryId,kind:type==='moneyLent'?'lent':'borrowed',amount:fromRupees(fields.amountInRupees)}};
+      if(legacy&&month===undefined)sharedEntries.push(row);
+      else {
+        checkMonth(month);
+        if(!state.months[month])throw new Error('A lending or borrowing entry is missing its month. Existing records have been kept.');
+        const list=entries.get(month)||[];list.push(row);entries.set(month,list);
+      }
     } else if(['monthlyCategoryBudget','carryForwardEdit','transaction'].includes(type)) {
       const {month,categoryId,...details}=rest;
       if(!state.months[month])throw new Error('A Firebase record is missing its month. No changes have been saved.');
@@ -140,9 +153,12 @@ export function decodeState(records) {
       }
     } else throw new Error(`Unknown Firebase record type in ${documentId}. Existing data has been kept.`);
   }
-  state.budgetReference=ordered(reference);state.investment=ordered(investments);state.moneyEntries=ordered(entries);
-  for(const [key,m] of Object.entries(state.months)){m.budgets=ordered(monthlyBudgets.get(key)||[]);m.transactions=ordered(transactions.get(key)||[]);}
-  return state;
+  state.budgetReference=ordered(reference);
+  for(const [key,m] of Object.entries(state.months)) {
+    m.budgets=ordered(monthlyBudgets.get(key)||[]);m.transactions=ordered(transactions.get(key)||[]);
+    m.investment=ordered(investments.get(key)||[]);m.moneyEntries=ordered(entries.get(key)||[]);
+  }
+  return legacy?migrateMonthlyRecords({...state,version:2,investment:ordered(sharedInvestments),moneyEntries:ordered(sharedEntries)}):state;
 }
 export function diffRecords(previous,next) {
   return [...new Set([...previous.keys(),...next.keys()])].filter(id=>stableJSON(previous.get(id))!==stableJSON(next.get(id))).map(id=>({documentId:id,fields:next.has(id)?clone(next.get(id)):null}));
@@ -150,7 +166,7 @@ export function diffRecords(previous,next) {
 // Old schema-2 documents used a single JSON string and integer paise. This
 // reader is used only by the automatic one-time database migration.
 export function decodeLegacyState(records) {
-  const state=createState();
+  const state={version:2,months:{},budgetReference:[],investment:[],moneyEntries:[]};
   const text=records.get('settings')?.data;
   if(!text)throw new Error('Old database settings are missing. No records have been overwritten.');
   const settings=JSON.parse(text);
@@ -170,7 +186,7 @@ export function decodeLegacyState(records) {
   return state;
 }
 export function migrationTarget(records) {
-  const old=decodeLegacyState(records),next=encodeState(old),roundTrip=decodeState(next);
+  const old=records.has(INFORMATION_DOCUMENT)?decodeState(records):migrateMonthlyRecords(decodeLegacyState(records)),next=encodeState(old),roundTrip=decodeState(next);
   if(stableJSON(old)!==stableJSON(roundTrip))throw new Error('The database conversion could not preserve every field. Existing records have not been overwritten.');
   return next;
 }

@@ -1,6 +1,6 @@
 import { firebaseConfig, ownerUid } from './firebase-config.mjs';
-import { uid } from './core.mjs?v=20261106-resets';
-import { encodeState, decodeState, diffRecords, migrationTarget } from './storage-codec.mjs?v=20261106-resets';
+import { uid } from './core.mjs?v=20261106-monthly-guide';
+import { encodeState, decodeState, diffRecords, migrationTarget, INFORMATION_DOCUMENT } from './storage-codec.mjs?v=20261106-monthly-guide';
 
 export const configured=!!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.authDomain && firebaseConfig.appId && ownerUid);
 const SDK='https://www.gstatic.com/firebasejs/12.10.0';
@@ -182,6 +182,12 @@ export async function connectCloud({onSession,onData,onStatus,onReset=()=>{}},de
           records=payload;
           const next=payload.size?migrationTarget(payload):encodeState(decodeState(new Map()));
           onStatus('Converting existing records to readable Firebase fields…');
+          maintain(()=>writeRecords(next,meta?.revision||0,'migration'),sessionGeneration);return;
+        }
+        if(payload.get(INFORMATION_DOCUMENT)?.websiteStateVersion===2) {
+          records=payload;
+          const next=migrationTarget(payload);
+          onStatus('Preserving older shared investments and loans in the latest saved month…');
           maintain(()=>writeRecords(next,meta?.revision||0,'migration'),sessionGeneration);return;
         }
         const state=decodeState(payload);records=payload;

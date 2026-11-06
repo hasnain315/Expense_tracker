@@ -129,7 +129,7 @@ input[type=checkbox]{accent-color:var(--green)}
   .reference-apply{align-items:flex-start;flex-direction:column}
 }
 @media(max-width:740px){
-  /* Six screens remain visible with two rows of three generous touch targets. */
+  /* The original six screens keep two rows of three generous touch targets. */
   .sidebar{padding:0 6px env(safe-area-inset-bottom);min-height:112px}
   #navigation{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
   .nav-item{min-height:55px;padding:7px 3px;gap:4px;font-size:11px;line-height:1.25}
@@ -278,3 +278,22 @@ input[type=checkbox]{accent-color:var(--green)}
 }
 
 .button[aria-disabled="true"]{opacity:.55;cursor:default}
+
+/* How to Use: scoped to the new guide; existing screen layouts are unchanged. */
+.usage-guide ol{margin:0;padding:0 30px 28px 54px}
+.usage-guide li{padding-left:8px;line-height:1.85}
+.usage-guide li+li{margin-top:23px}
+.usage-guide li::marker{color:var(--green);font-weight:600}
+.usage-guide h3{font-size:16px;margin-bottom:5px}
+.usage-guide li p{font-size:14px;color:#65715d}
+.usage-guide a{text-decoration:underline;text-underline-offset:3px;color:var(--green)}
+@media(max-width:700px){.usage-guide ol{padding:0 21px 24px 40px}.usage-guide li{padding-left:3px}.usage-guide h3{font-size:15px}.usage-guide li p{font-size:13px}}
+
+.investment-grid>.empty-state{grid-column:1/-1}
+@media(max-width:740px){
+  /* Add the guide below the original six items, with room to scroll past it. */
+  #navigation .nav-item[href="#how-to-use"]{grid-column:1/-1;min-height:44px;flex-direction:row;gap:8px}
+  .sidebar{min-height:156px}
+  main{padding-bottom:calc(189px + env(safe-area-inset-bottom))}
+  .toast{bottom:calc(170px + env(safe-area-inset-bottom))}
+}
