@@ -103,10 +103,11 @@ export function totals(state,key) {
   const {lent,held}=loanTotals(state,key);
   const kept=(m?.transactions||[]).filter(t=>t.keep!==false);
   const actual=kept.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
-  // The month's saved manual amount, including zero, takes priority. Otherwise
-  // use the same shared total shown on Monthly Budget Reference. Reading this
+  // Blank or zero manual amounts use the total shown on Monthly Budget
+  // Reference. Other saved amounts keep their existing behavior. Reading this
   // default never changes saved monthly budgets or any other records.
-  const tentative=m?.tentative??budgetReferenceTotal(state);
+  const manual=m?.tentative;
+  const tentative=manual==null||manual===0?budgetReferenceTotal(state):manual;
   const investment=(m?.investment||[]).reduce((s,i)=>s+i.amount,0);
   const withoutInvestment=cash+bank+lent-held-tentative;
   return {cash,bank,lent,held,tentative,actual,investment,savings:withoutInvestment+investment,withoutInvestment,liquid:cash+bank-held-tentative};
