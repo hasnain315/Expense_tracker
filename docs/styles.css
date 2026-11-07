@@ -522,6 +522,7 @@ input[type=checkbox]{accent-color:var(--green)}
 .chart-start-savings{fill:#446fc2;background:#446fc2}
 .chart-end-savings{fill:#8861b6;background:#8861b6}
 .chart-calculated-unaccounted{fill:#bc6345;background:#bc6345}
+.closure-savings-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:1100px){
   .closure-plan-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
   .closure-plan-fields label:last-of-type{grid-column:1/-1;max-width:470px}
@@ -532,4 +533,5 @@ input[type=checkbox]{accent-color:var(--green)}
   .closure-plan-fields label{font-size:13px}
   .closure-plan-fields label:last-of-type{grid-column:auto;max-width:none}
   .closure-plan-fields small{min-height:0;font-size:12px}
+  .closure-savings-metrics{grid-template-columns:1fr}
 }
