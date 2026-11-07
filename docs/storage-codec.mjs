@@ -1,4 +1,4 @@
-import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-closure-balances-v2';
+import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-savings-comparison-v3';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.
@@ -38,6 +38,7 @@ const closureAmounts={expectedSavings:'expectedClosingSavingsInRupees',expectedE
   openingHeld:'moneyBorrowedOrHeldAtStartOfMonthInRupees',closingHeld:'moneyBorrowedOrHeldAtEndOfMonthInRupees',
   cashFinancialAdjustment:'cashFinancialMovementAdjustmentInRupees',bankFinancialAdjustment:'bankFinancialMovementAdjustmentInRupees'};
 const snapshotAmounts={...closureAmounts,investment:'closingInvestmentsInRupees',lent:'closingMoneyLentInRupees',held:'closingMoneyBorrowedOrHeldInRupees',
+  expectedSavingsEnd:'expectedClosingSavingsCalculatedAtEndOfMonthInRupees',theoreticalSavingsDifference:'theoreticalSavingsDifferenceInRupees',
   calculatedCash:'calculatedCashBeforeAdjustmentInRupees',calculatedBank:'calculatedBankBeforeAdjustmentInRupees',recordedCash:'cashAdjustmentInRupees',recordedBank:'bankAdjustmentInRupees',
   calculatedSavings:'calculatedClosingSavingsInRupees',actualSavings:'actualClosingSavingsInRupees',savingsDifference:'savingsDifferenceInRupees',
   cashShortfall:'cashShortfallInRupees',bankShortfall:'bankShortfallInRupees',cashExcess:'cashExcessInRupees',bankExcess:'bankExcessInRupees',

@@ -1,5 +1,5 @@
-import { formatMoney as fmt, rupees, monthName } from './core.mjs?v=20261107-closure-balances-v2';
-import { getClosure, componentValues, closureSummary, closureNeedsReview, closureComparison, adjustmentsNeedSync } from './closure.mjs?v=20261107-closure-balances-v2';
+import { formatMoney as fmt, rupees, monthName } from './core.mjs?v=20261107-savings-comparison-v3';
+import { getClosure, componentValues, closureSummary, closureNeedsReview, closureComparison } from './closure.mjs?v=20261107-savings-comparison-v3';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const amount=value=>value==null?'Not entered':fmt(value);
@@ -16,68 +16,60 @@ export const componentRows=[
   {id:'held',opening:'openingHeld',closing:'closingHeld',difference:'heldDifference',title:'Money Borrowed or Held for Others',openingLabel:'Money Borrowed or Held at Start of Month',closingLabel:'Money Borrowed or Held at End of Month',differenceLabel:'Change in Money Borrowed or Held',openingHint:'Amount you owed or held for others at the beginning of the selected month.',closingHint:'Amount you owed or held for others at the end of the selected month.'}
 ];
 export function renderClosure(state,key,selection) {
-  const c=getClosure(state,key),s=closureSummary(state,key),v=componentValues(state,key),closed=c.status==='closed',review=closureNeedsReview(state,key),sync=adjustmentsNeedSync(state,key);
-  const result=closed&&c.snapshot?c.snapshot:s;
-  const target=result.target==='not-set'?'Enter your target and complete closing figures':`Savings target ${result.target}`;
-  const status=closed?(review?'Closed · needs review':'Month closed'):(c.snapshot?'Reopened for corrections':'Month open');
-  return `<div class="closure-status ${review?'closure-warning':''}"><div><strong>${status}</strong><p>${closed?`Closed ${esc(new Date(c.closedAt).toLocaleString('en-IN'))}. ${review?'Relevant records changed. Reopen, review and close again.':'Your saved closure snapshot is preserved.'}`:'Save the opening figures at the start of the month, then complete the closing figures when ready.'}</p></div>${closed?'<button class="button secondary" id="reopen-month">Reopen Month</button>':''}</div>
-  <section class="card closure-form-card"><div class="card-heading"><div><span class="closure-step">01 · PLAN THE MONTH</span><h2>Set your expectations</h2><p>Save your own savings target. Expected Expenses follows Overview automatically.</p></div></div><form id="closure-expected-form"><fieldset class="closure-fields" ${closed?'disabled':''}>
-    ${input('expectedSavings','Expected Closing Savings',c.expectedSavings,'Your manually entered target. It changes only when you edit and save it.')}
-    ${input('expectedExpenses','Expected Expenses',s.expectedExpenses,'Automatically taken from “This Month’s Tentative Expenses” on the Overview screen for the selected month and year.',{readonly:true})}
-    <div class="closure-form-actions"><button class="button primary" type="submit">Save Expected Closing Savings</button><span>${closed?'This field shows the current Overview value; saved results below retain the value recorded when you closed the month.':'Edit tentative expenses through Monthly Budget Reference to change the Overview value.'}</span></div></fieldset></form></section>
+  const c=getClosure(state,key),s=closureSummary(state,key,{current:true}),v=componentValues(state,key),closed=c.status==='closed',review=closureNeedsReview(state,key);
+  const target=s.target==='not-set'?'Save the start-of-month estimate and actual figures':`Start-of-month savings target ${s.target}`;
+  const status=closed?(review?'Saved closed month · needs review':'Saved closed month'):(c.snapshot?'Reopened monthly figures':c.savedAt?'Monthly figures saved':'Enter your monthly figures');
+  return `<div class="closure-status ${review?'closure-warning':''}"><div><strong>${status}</strong><p>${closed?'The original closed snapshot remains stored. The comparisons below use the updated formula and current Overview savings. Reopen this month to edit its saved figures.':'Use Save in each section to keep your figures for this month. Automatic fields update as the selected month’s Overview changes.'}</p></div>${closed?'<button class="button secondary" id="reopen-month">Reopen Month</button>':''}</div>
+  <section class="card closure-form-card"><div class="card-heading"><div><span class="closure-step">01 · EXPECTED SAVINGS</span><h2>Compare your savings estimates</h2><p>Keep the start-of-month estimate fixed and compare it with the updated Overview value.</p></div></div><form id="closure-expected-form"><fieldset class="closure-fields closure-plan-fields" ${closed?'disabled':''}>
+    ${input('expectedSavings','Expected Closing Savings Calculated at Start of Month',c.expectedSavings,'Enter the Total Savings, including investments, shown on Overview at the start of the selected month. Overview changes as records are updated, while this saved amount remains fixed unless you manually edit it.')}
+    ${input('expectedSavingsEnd','Expected Closing Savings Calculated at End of Month',s.expectedSavingsEnd,'Automatically reflects Total Savings, including investments, on Overview for the selected month and year. This amount updates as the underlying records change.',{readonly:true})}
+    ${input('theoreticalSavingsDifference','Theoretical Savings Difference',s.theoreticalSavingsDifference,'Compares the fixed savings estimate saved at the start of the month with the updated estimate. A positive amount indicates a decrease; a negative amount indicates an increase.',{readonly:true,required:false})}
+    <div class="closure-form-actions"><button class="button primary" type="submit">Save Start-of-Month Expected Savings</button><span>Theoretical Savings Difference = start-of-month expected savings − end-of-month expected savings.</span></div></fieldset></form></section>
   <section class="card closure-form-card"><div class="card-heading"><div><span class="closure-step">02 · OPENING AND CLOSING FIGURES</span><h2>Investments, lending and borrowing</h2><p>Save opening values at the start of the month. Add closing values at month-end. Each change is closing minus opening.</p></div></div>
     <form id="closure-components-form"><fieldset class="closure-component-fields" ${closed?'disabled':''}>${componentRows.map(row=>`<section class="closure-component-row" data-component="${row.id}"><h3>${row.title}</h3><div class="closure-component-inputs">
       ${input(row.opening,row.openingLabel,v[row.opening],row.openingHint,{min:'0',required:false})}
       ${input(row.closing,row.closingLabel,v[row.closing],row.closingHint,{min:'0',required:false})}
       ${input(row.difference,row.differenceLabel,s[row.difference],'Closing − opening. Positive means an increase; negative means a decrease.',{readonly:true,required:false})}</div></section>`).join('')}
       <div class="closure-form-actions"><button class="button primary" type="submit">Save Component Figures</button><span>Leave closing fields blank until month-end. Enter zero where there is no balance.</span></div>
-      <div class="closure-copy-actions"><button type="button" class="button secondary small" data-copy-components="opening">Use Monthly Records as Opening</button><button type="button" class="button secondary small" data-copy-components="closing">Use Monthly Records as Closing</button><p>Copies this month’s current Investment and Money Lent and Borrowed totals into only the chosen set of fields. <a href="#investment">Review investments</a> · <a href="#money">Review lending and borrowing</a></p></div>
-    </fieldset></form><p class="closure-component-note">The three balance changes are for comparison. They do not automatically become expenses or cash adjustments. Changing closing figures leaves saved opening figures unchanged.</p></section>
-  <section class="card closure-form-card"><div class="card-heading"><div><span class="closure-step">03 · ACTUAL MONTH-END BALANCES</span><h2>Enter actual closing balances</h2><p>Use the cash and bank balances at the end of ${esc(monthName(key))}, even if you complete the closure later.</p></div></div><form id="closure-actual-form"><fieldset class="closure-fields" ${closed?'disabled':''}>
+    </fieldset></form></section>
+  <section class="card closure-form-card"><div class="card-heading"><div><span class="closure-step">03 · ACTUAL MONTH-END BALANCES</span><h2>Enter actual closing balances</h2><p>Use the cash and bank balances at the end of ${esc(monthName(key))}, even if you complete the figures later.</p></div></div><form id="closure-actual-form"><fieldset class="closure-fields" ${closed?'disabled':''}>
     ${input('actualCash','Actual Closing Cash Balance',c.actualCash,'Cash you actually held on the selected month’s last day.',{min:'0'})}
     ${input('actualBank','Actual Closing Bank Balance',c.actualBank,'Bank balance on the selected month’s last day. A negative value can represent an overdraft.')}
-    <div class="closure-form-actions"><button class="button primary" type="submit">Save Actual Balances</button><span>These balances stay unchanged when you record an Unaccounted Expense.</span></div></fieldset></form>
-    <aside class="closure-late-help"><h3>Closing a month later?</h3>${lateClosureGuidance}</aside>
-    <p class="closure-savings-formula">Actual Closing Savings = Actual Closing Cash + Actual Closing Bank Balance + Investment Value at End of Month + Money Lent Outstanding at End of Month − Money Borrowed or Held at End of Month. Tentative expenses are not subtracted.</p></section>
-  <section class="card"><div class="card-heading"><div><span class="closure-step">04 · COMPARE YOUR RESULT</span><h2>${closed?'Saved month-end result':'Month-end result'}</h2><p>${closed?'These cards and the graphs show your saved closure snapshot. Reopen the month to update it.':'Based on the figures you have saved for the selected month.'}</p></div><span class="closure-target ${result.target}">${target}</span></div><div class="closure-metrics">
-    ${metric('Expected Closing Savings',amount(result.expectedSavings),'Manually entered target')}
-    ${metric('Actual Closing Savings',amount(result.actualSavings),'Uses your actual balances and saved closing components','closure-featured')}
-    ${metric('Savings Difference',signed(result.savingsDifference),'Actual − expected',result.savingsDifference<0?'closure-negative':'')}
-    ${metric('Expected Expenses',amount(result.expectedExpenses),closed?'Overview value saved at closure':'From This Month’s Tentative Expenses on Overview')}
-    ${metric('Actual Expenses',fmt(result.actualExpenses),'Retained expense transactions, including the recorded Unaccounted Amount once')}
-    ${metric('Unaccounted Amount',amount(result.unaccounted),`${fmt(result.recordedUnaccounted)} recorded as expense`,'closure-amber')}
-    ${metric('Expense Difference',signed(result.expensesDifference),'Actual − expected; positive means higher spending')}
+    <div class="closure-form-actions"><button class="button primary" type="submit">Save Actual Balances</button><span>Saved separately for the selected month and year.</span></div></fieldset></form>
+    <aside class="closure-late-help"><h3>Completing a month later?</h3>${lateClosureGuidance}</aside>
+    <p class="closure-savings-formula"><strong>Actual Month-End Savings = Actual Closing Cash + Actual Closing Bank Balance + Investment Value at End of Month + Money Lent Outstanding at End of Month − Money Borrowed or Held at End of Month.</strong></p></section>
+  <section class="card"><div class="card-heading"><div><span class="closure-step">04 · MONTH-END RESULT</span><h2>Your savings comparison</h2><p>Uses your saved monthly figures and the current Total Savings (Including Investments) on Overview.</p></div><span class="closure-target ${s.target}">${target}</span></div><div class="closure-metrics">
+    ${metric('Actual Month-End Savings',amount(s.actualSavings),'Your savings based on actual month-end cash, bank, investment, lending and borrowing figures. Tentative expenses are not subtracted again.','closure-featured')}
+    ${metric('Unaccounted Amount',amount(s.unaccounted),'End-of-month expected savings − Actual Month-End Savings − net financial adjustment. Negative results are shown as ₹0.','closure-amber')}
+    ${metric('Savings Difference',signed(s.savingsDifference),'Actual Month-End Savings − expected savings calculated at the start of the month',s.savingsDifference<0?'closure-negative':'')}
+    ${metric('Actual Expenses',fmt(s.actualExpenses),'Retained expense transactions, including any previously recorded Unaccounted Expenses once')}
+    ${metric('Expense Difference',signed(s.expensesDifference),'Actual recorded expenses − this month’s tentative expenses on Overview')}
   </div></section>
-  <section class="card closure-actions-card"><div class="card-heading"><div><span class="closure-step">05 · RECORD AND CLOSE</span><h2>Save and close this month</h2><p>The unexplained shortfall between your calculated and actual closing cash and bank balances, after accounting for recorded spending and other financial movements. Review missing entries before recording it as an expense.</p></div></div>
-    <div class="closure-adjustment-summary"><p><strong>Unaccounted Amount = Calculated Closing Cash and Bank Balance − Actual Closing Cash and Bank Balance − Net Investment, Lending and Borrowing Adjustment</strong></p><p>${fmt(s.calculatedAccounts)} − (${amount(s.actualAccounts)}) − (${fmt(s.netFinancialAdjustment)}) = <strong>${amount(s.unaccounted)}</strong>. Negative results are shown as ₹0.</p><p>Calculated balances come from Transactions, before existing Unaccounted Expense adjustments. Your savings target and the three component differences are not part of this calculation.</p></div>
-    <details class="closure-financial-adjustment" ${s.netFinancialAdjustment!==0?'open':''}><summary>Net Investment, Lending and Borrowing Adjustment <strong>${fmt(s.netFinancialAdjustment)}</strong></summary><p>Enter only confirmed cash or bank movements missing from Transactions. Use a <strong>positive</strong> amount for net money paid out (investing, lending, or repaying borrowing) and a <strong>negative</strong> amount for net money received (investment withdrawals, lending repayments, or new borrowing). Net adjustment = these outflows − these inflows.</p><p>Leave zero when all movements are already recorded. Do not include investment market-value changes or movements already counted in Transactions. If you later add a previously missing movement to Transactions, remove it from this adjustment too.</p>
+  <section class="card closure-calculation-card"><div class="card-heading"><div><span class="closure-step">05 · UNACCOUNTED AMOUNT</span><h2>Unaccounted Amount calculation</h2><p>Calculated from the updated savings estimate, your actual month-end figures and the saved net financial adjustment.</p></div></div>
+    <div class="closure-adjustment-summary"><p><strong>Unaccounted Amount = Expected Closing Savings Calculated at End of Month − Actual Month-End Savings − Net Investment, Lending and Borrowing Adjustment</strong></p><p>${amount(s.expectedSavingsEnd)} − (${amount(s.actualSavings)}) − (${fmt(s.netFinancialAdjustment)}) = <strong>${amount(s.unaccounted)}</strong>. Negative results are shown as ₹0.</p></div>
+    <details class="closure-financial-adjustment" ${s.netFinancialAdjustment!==0?'open':''}><summary>Net Investment, Lending and Borrowing Adjustment <strong>${fmt(s.netFinancialAdjustment)}</strong></summary><p>Use a positive adjustment for net financial money paid out and a negative adjustment for net financial money received, where the movement is not already reflected in your comparison figures. Net adjustment = these outflows − these inflows.</p><p>Leave zero when no additional adjustment is needed. Count each movement once. Do not enter investment market-value changes as cash movements.</p>
       <form id="closure-adjustment-form"><fieldset class="closure-fields" ${closed?'disabled':''}>
-        ${input('cashFinancialAdjustment','Cash Financial Movement Adjustment',s.cashFinancialAdjustment,'Net financial outflow missing from cash transactions. Use a negative amount for net inflow.')}
-        ${input('bankFinancialAdjustment','Bank Financial Movement Adjustment',s.bankFinancialAdjustment,'Net financial outflow missing from bank transactions. Use a negative amount for net inflow.')}
-        <div class="closure-form-actions"><button class="button secondary" type="submit">Save Financial Adjustment</button><span>Applies to this closure only; it does not create a spending transaction.</span></div></fieldset></form>
-    </details>
-    <div class="closure-close-panel"><label class="closure-review-check"><input type="checkbox" id="closure-reviewed" ${closed?'disabled':''}><span>I have reviewed the month-end figures, missing transactions and financial movements, and confirmed any remaining unaccounted spending.</span></label>
-      <div class="button-group"><button class="button secondary" id="record-unaccounted" ${closed||s.unaccounted===null||!sync?'disabled':''}>Record Unaccounted Expense</button><button class="button primary" id="close-month" ${closed?'disabled':''}>Close Month</button></div>
-      <p>${closed?'Reopen Month to correct the saved figures.':s.unaccounted===null?'Save both actual closing balances before recording an expense.':sync?'Record or update the Unaccounted Expense before closing.':`${fmt(s.recordedUnaccounted)} is recorded as Unaccounted Expense. You can close the month after your review.`} Re-recording replaces the existing linked expense instead of adding a duplicate. Your entered actual closing balances remain unchanged.</p></div></section>
+        ${input('cashFinancialAdjustment','Cash Financial Movement Adjustment',s.cashFinancialAdjustment,'Additional net financial outflow for cash. Use a negative amount for net inflow.')}
+        ${input('bankFinancialAdjustment','Bank Financial Movement Adjustment',s.bankFinancialAdjustment,'Additional net financial outflow for bank. Use a negative amount for net inflow.')}
+        <div class="closure-form-actions"><button class="button secondary" type="submit">Save Financial Adjustment</button><span>Saves this month’s adjustment without creating an expense transaction.</span></div></fieldset></form>
+    </details></section>
   ${renderComparisons(state,selection)}`;
 }
 export function renderComparisons(state,selection) {
   const keys=Object.keys(state.months).filter(key=>state.months[key].closure).sort();
-  if(!keys.length)return '<section class="card closure-comparisons"><h2>Compare multiple months and years</h2><p>Save expected figures for a month to add it to the comparison graphs.</p></section>';
+  if(!keys.length)return '<section class="card closure-comparisons"><h2>Compare multiple months and years</h2><p>Save monthly figures to add a month to the comparison graphs.</p></section>';
   const years=[...new Set(keys.map(key=>key.slice(0,4)))].sort().reverse();
-  const selected=keys.filter(key=>selection.has(key)),rows=selected.map(key=>closureComparison(state,key));
-  return `<section class="card closure-comparisons"><div class="card-heading"><div><h2>Compare multiple months and years</h2><p>Select any saved months. Closed months use saved closure snapshots; open months use their saved draft figures.</p></div><div class="button-group"><button class="button secondary small" id="compare-all">Select all</button><button class="button secondary small" id="compare-none">Clear selection</button></div></div>
-    <div class="closure-month-picker">${years.map(year=>`<fieldset><legend>${year}</legend><div>${keys.filter(key=>key.startsWith(year+'-')).map(key=>`<label><input type="checkbox" data-compare-month="${key}" ${selection.has(key)?'checked':''}><span>${shortMonth(key)}${closureNeedsReview(state,key)?' · Review':getClosure(state,key).status==='closed'?' · Closed':' · Draft'}</span></label>`).join('')}</div></fieldset>`).join('')}</div>
-    <div class="closure-chart-area" aria-live="polite">${rows.length?`${barChart(rows,'savings')}${barChart(rows,'expenses')}
-`:'<p class="closure-chart-empty">Select one or more months to display the graphs.</p>'}</div></section>`;
+  const rows=keys.filter(key=>selection.has(key)).map(key=>closureComparison(state,key));
+  return `<section class="card closure-comparisons"><div class="card-heading"><div><h2>Compare multiple months and years</h2><p>Compare the fixed starting estimate, updated Overview savings and actual month-end figures. Graphs use the current calculations for each selected month; original closed snapshots remain stored.</p></div><div class="button-group"><button class="button secondary small" id="compare-all">Select all</button><button class="button secondary small" id="compare-none">Clear selection</button></div></div>
+    <div class="closure-month-picker">${years.map(year=>`<fieldset><legend>${year}</legend><div>${keys.filter(key=>key.startsWith(year+'-')).map(key=>`<label><input type="checkbox" data-compare-month="${key}" ${selection.has(key)?'checked':''}><span>${shortMonth(key)}${closureNeedsReview(state,key)?' · Review':getClosure(state,key).status==='closed'?' · Closed':' · Saved figures'}</span></label>`).join('')}</div></fieldset>`).join('')}</div>
+    <div class="closure-chart-area" aria-live="polite">${rows.length?`${barChart(rows,'savings')}${barChart(rows,'expenses')}`:'<p class="closure-chart-empty">Select one or more months to display the graphs.</p>'}</div></section>`;
 }
 function barChart(rows,kind) {
-  const savings=kind==='savings',title=savings?'Savings graph':'Expenses graph';
-  const expected=savings?'expectedSavings':'expectedExpenses',actual=savings?'actualSavings':'actualExpenses';
-  const values=rows.flatMap(row=>[row[expected],row[actual]]).filter(value=>value!==null);
+  const savings=kind==='savings',title=savings?'Savings graph':'Expenses and Unaccounted Amount graph';
+  const values=rows.flatMap(row=>savings?[row.expectedSavings,row.expectedSavingsEnd,row.actualSavings]:[row.actualExpenses,row.unaccounted]).filter(value=>value!=null);
   const min=Math.min(0,...values),max=Math.max(100,...values),span=max-min,low=min<0?min-span*.08:0,high=max+span*.13;
-  const width=Math.max(600,rows.length*160+90),height=330,left=85,right=20,top=20,bottom=65,plotHeight=height-top-bottom;
-  const y=value=>top+(high-value)/(high-low)*plotHeight,zero=y(0),groupWidth=(width-left-right)/rows.length,barWidth=Math.min(35,groupWidth*.25);
+  const width=Math.max(700,rows.length*190+100),height=330,left=85,right=20,top=20,bottom=65,plotHeight=height-top-bottom;
+  const y=value=>top+(high-value)/(high-low)*plotHeight,zero=y(0),groupWidth=(width-left-right)/rows.length,barWidth=Math.min(savings?30:35,groupWidth*.19);
   let shapes='';
   for(let index=0;index<=4;index++) {
     const value=low+(high-low)*index/4,py=y(value),label=new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',notation:'compact',maximumFractionDigits:1}).format(value/100);
@@ -88,20 +80,26 @@ function barChart(rows,kind) {
     const y1=y(offset),y2=y(offset+value),h=Math.max(2,Math.abs(y2-y1));
     return `<rect class="chart-bar ${css}" x="${x}" y="${Math.min(y1,y2)-(value===0?2:0)}" width="${barWidth}" height="${h}" rx="3" tabindex="0" role="button" aria-label="${esc(detail)}" data-chart-detail="${esc(detail)}"><title>${esc(detail)}</title></rect>`;
   };
+  const missing=x=>`<text class="chart-missing" x="${x+barWidth/2}" y="${zero-9}" text-anchor="middle">—</text>`;
   rows.forEach((row,index)=>{
-    const centre=left+groupWidth*(index+.5),label=shortMonth(row.month),status=row.needsReview?' · Needs review':row.status==='closed'?'':' · Draft';
-    if(row[expected]!==null)shapes+=rect(centre-barWidth-5,row[expected],'chart-expected-'+kind,`${label} · ${savings?'Expected Closing Savings':'Expected Expenses'}: ${fmt(row[expected])}${status}`);
-    else shapes+=`<text class="chart-missing" x="${centre-barWidth/2-5}" y="${zero-9}" text-anchor="middle">—</text>`;
-    if(row[actual]!==null) {
-      if(savings)shapes+=rect(centre+5,row[actual],'chart-actual-savings',`${label} · Actual Closing Savings: ${fmt(row[actual])}${status}`);
-      else {
-        const ordinary=row.actualExpenses-row.recordedUnaccounted;
-        const detail=`${label} · Actual Expenses: ${fmt(row.actualExpenses)} · Recorded expenses: ${fmt(ordinary)} · Unaccounted Amount included: ${fmt(row.recordedUnaccounted)}${status}`;
-        if(ordinary>0||row.actualExpenses===0)shapes+=rect(centre+5,ordinary,'chart-actual-expenses',detail);
-        if(row.recordedUnaccounted>0)shapes+=rect(centre+5,row.recordedUnaccounted,'chart-unaccounted',detail,ordinary);
-      }
-    } else shapes+=`<text class="chart-missing" x="${centre+barWidth/2+5}" y="${zero-9}" text-anchor="middle">—</text>`;
-    shapes+=`<text class="chart-axis-text chart-month-label" x="${centre}" y="${height-35}" text-anchor="middle">${label}</text><text class="chart-status-text" x="${centre}" y="${height-17}" text-anchor="middle">${row.needsReview?'Review needed':row.status==='closed'?'Closed':'Draft'}</text>`;
+    const centre=left+groupWidth*(index+.5),label=shortMonth(row.month),status=row.needsReview?' · Needs review':'';
+    if(savings) {
+      const columns=[
+        {value:row.expectedSavings,x:centre-barWidth*1.5-9,css:'chart-start-savings',name:'Expected Closing Savings Calculated at Start of Month'},
+        {value:row.expectedSavingsEnd,x:centre-barWidth/2,css:'chart-end-savings',name:'Expected Closing Savings Calculated at End of Month'},
+        {value:row.actualSavings,x:centre+barWidth/2+9,css:'chart-actual-savings',name:'Actual Month-End Savings'}
+      ];
+      for(const column of columns)shapes+=column.value==null?missing(column.x):rect(column.x,column.value,column.css,`${label} · ${column.name}: ${fmt(column.value)} · Theoretical Savings Difference: ${amount(row.theoreticalSavingsDifference)}${status}`);
+    } else {
+      const ordinary=row.actualExpenses-row.recordedUnaccounted;
+      const detail=`${label} · Actual Expenses: ${fmt(row.actualExpenses)} · Recorded expenses: ${fmt(ordinary)} · Unaccounted Amount included (previously recorded): ${fmt(row.recordedUnaccounted)}${status}`;
+      if(ordinary>0||row.actualExpenses===0)shapes+=rect(centre-barWidth-6,ordinary,'chart-actual-expenses',detail);
+      if(row.recordedUnaccounted>0)shapes+=rect(centre-barWidth-6,row.recordedUnaccounted,'chart-unaccounted',detail,ordinary);
+      const x=centre+6;
+      shapes+=row.unaccounted==null?missing(x):rect(x,row.unaccounted,'chart-calculated-unaccounted',`${label} · Unaccounted Amount (calculated): ${fmt(row.unaccounted)} · Shown separately; not automatically added to Actual Expenses${status}`);
+    }
+    shapes+=`<text class="chart-axis-text chart-month-label" x="${centre}" y="${height-35}" text-anchor="middle">${label}</text><text class="chart-status-text" x="${centre}" y="${height-17}" text-anchor="middle">${row.needsReview?'Review needed':row.status==='closed'?'Closed record':'Saved figures'}</text>`;
   });
-  return `<figure class="closure-chart"><figcaption><h3>${title}</h3><p>${savings?'Expected Closing Savings versus Actual Closing Savings.':'The actual-expense bar stacks recorded spending and the recorded Unaccounted Amount, counted once.'} Hover, focus or tap a bar for exact rupee amounts. Swipe horizontally to see more months.</p></figcaption><div class="chart-legend"><span><i class="chart-expected-${kind}"></i>${savings?'Expected Closing Savings':'Expected Expenses'}</span><span><i class="chart-actual-${kind}"></i>${savings?'Actual Closing Savings':'Recorded Expenses'}</span>${savings?'':'<span><i class="chart-unaccounted"></i>Unaccounted Amount within Actual Expenses</span>'}</div><div class="closure-chart-scroll"><svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="${title}">${shapes}</svg></div><p class="closure-chart-detail" data-chart-readout role="status">Select a bar to see its exact amount. A dash means a figure has not been entered.</p></figure>`;
+  const legend=savings?'<span><i class="chart-start-savings"></i>Expected savings at start of month</span><span><i class="chart-end-savings"></i>Expected savings at end of month · Overview</span><span><i class="chart-actual-savings"></i>Actual Month-End Savings</span>':'<span><i class="chart-actual-expenses"></i>Recorded expenses</span><span><i class="chart-unaccounted"></i>Previously recorded Unaccounted Expenses</span><span><i class="chart-calculated-unaccounted"></i>Unaccounted Amount · calculated separately</span>';
+  return `<figure class="closure-chart"><figcaption><h3>${title}</h3><p>${savings?'Compare start-of-month expected savings, current end-of-month expected savings from Overview, and Actual Month-End Savings.':'The first bar shows Actual Expenses, with previously recorded Unaccounted Expenses included once. The second bar shows the current calculated Unaccounted Amount separately; the two bars are not added together.'} Hover, focus or tap a bar for exact rupee amounts. Swipe horizontally to see more months.</p></figcaption><div class="chart-legend">${legend}</div><div class="closure-chart-scroll"><svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px" role="group" aria-label="${title}">${shapes}</svg></div><p class="closure-chart-detail" data-chart-readout role="status">Select a bar to see its exact amount. A dash means a figure has not been entered.</p></figure>`;
 }

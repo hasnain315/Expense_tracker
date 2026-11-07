@@ -1,4 +1,4 @@
-import { ensureMonth, getMonth, totals } from './core.mjs?v=20261107-closure-balances-v2';
+import { ensureMonth, getMonth, totals } from './core.mjs?v=20261107-savings-comparison-v3';
 
 export const UNACCOUNTED_CATEGORY='month-end-unaccounted';
 export const UNACCOUNTED_NAME='Unaccounted Amount';
@@ -7,12 +7,12 @@ export const adjustmentId=(key,account)=>`closure-unaccounted-${key}-${account}`
 export const isClosureAdjustment=tx=>tx.source==='Month-End Closure' && typeof tx.closureMonth==='string';
 export const COMPONENT_FIELDS=['openingInvestment','closingInvestment','openingLent','closingLent','openingHeld','closingHeld'];
 export const blankClosure=()=>({expectedSavings:null,expectedExpenses:null,actualCash:null,actualBank:null,
-  ...Object.fromEntries(COMPONENT_FIELDS.map(field=>[field,null])),cashFinancialAdjustment:0,bankFinancialAdjustment:0,inputVersion:2,status:'open',needsReview:false});
+  ...Object.fromEntries(COMPONENT_FIELDS.map(field=>[field,null])),cashFinancialAdjustment:0,bankFinancialAdjustment:0,inputVersion:3,status:'open',needsReview:false});
 export const getClosure=(state,key)=>getMonth(state,key).closure||blankClosure();
 export function componentValues(state,key) {
   const c=getClosure(state,key),t=totals(state,key);
   return Object.fromEntries(COMPONENT_FIELDS.map(field=>{
-    const fallback=c.inputVersion===2||field.startsWith('opening')?null:
+    const fallback=c.inputVersion>=2||field.startsWith('opening')?null:
       field==='closingInvestment'?(c.snapshot?.investment??t.investment):field==='closingLent'?(c.snapshot?.lent??t.lent):(c.snapshot?.held??t.held);
     return [field,c[field]??fallback];
   }));
@@ -33,7 +33,9 @@ export function saveClosureInputs(state,key,values,now=new Date().toISOString())
   }
   const existing=getClosure(state,key),components=componentValues(state,key);
   const m=ensureMonth(state,key);
-  m.closure={...blankClosure(),...existing,...components,...values,inputVersion:2,expectedExpenses:totals(state,key).tentative,savedAt:now};
+  // expectedSavings keeps its original key so the renamed start-of-month
+  // field retains every saved target. Older expense fields/snapshots are kept.
+  m.closure={...blankClosure(),...existing,...components,...values,inputVersion:3,savedAt:now};
 }
 export function copyMonthlyComponents(state,key,stage) {
   if(!['opening','closing'].includes(stage))throw Error('Choose opening or closing figures.');
@@ -42,7 +44,7 @@ export function copyMonthlyComponents(state,key,stage) {
 }
 // Add back only our own posted adjustment to obtain the balance from ordinary
 // records. Recomputing an adjustment replaces its total, never adds it twice.
-export function closureSummary(state,key) {
+export function closureSummary(state,key,{current=false}={}) {
   const m=getMonth(state,key),c=getClosure(state,key),t=totals(state,key);
   const adjustments=m.transactions.filter(tx=>isClosureAdjustment(tx)&&tx.closureMonth===key&&tx.keep!==false&&tx.type==='expense');
   const posted=account=>adjustments.filter(tx=>tx.wallet===account).reduce((sum,tx)=>sum+tx.amount,0);
@@ -55,18 +57,26 @@ export function closureSummary(state,key) {
   const bankGap=c.actualBank===null?null:calculatedBank-c.actualBank-bankFinancialAdjustment;
   const calculatedAccounts=calculatedCash+calculatedBank;
   const actualAccounts=c.actualCash===null||c.actualBank===null?null:c.actualCash+c.actualBank;
-  const unaccounted=actualAccounts===null?null:Math.max(0,calculatedAccounts-actualAccounts-netFinancialAdjustment);
+  const actualSavings=actualAccounts===null||[investment,lent,held].some(value=>value===null)?null:actualAccounts+investment+lent-held;
+  const expectedSavingsEnd=t.savings;
+  const theoreticalSavingsDifference=c.expectedSavings===null?null:c.expectedSavings-expectedSavingsEnd;
+  const useSavingsFormula=current||c.inputVersion>=3;
+  // The current screen uses the requested Overview savings formula exactly,
+  // including Overview's existing tentative-expense deduction. Legacy helper
+  // operations retain their versioned calculation without rewriting history.
+  const unaccounted=useSavingsFormula?
+    (actualSavings===null?null:Math.max(0,expectedSavingsEnd-actualSavings-netFinancialAdjustment)):
+    (actualAccounts===null?null:Math.max(0,calculatedAccounts-actualAccounts-netFinancialAdjustment));
   // Allocate the combined shortfall to the affected account. An offset between
   // cash and bank (for example a missing own-account transfer) is not spending.
   const cashShortfall=unaccounted===null?null:Math.min(Math.max(0,cashGap),unaccounted);
   const bankShortfall=unaccounted===null?null:unaccounted-cashShortfall;
   const cashExcess=cashGap===null?null:Math.max(0,-cashGap),bankExcess=bankGap===null?null:Math.max(0,-bankGap);
-  const actualSavings=actualAccounts===null||[investment,lent,held].some(value=>value===null)?null:actualAccounts+investment+lent-held;
   const savingsDifference=actualSavings===null||c.expectedSavings===null?null:actualSavings-c.expectedSavings;
   const recordedUnaccounted=recordedCash+recordedBank;
   const expectedExpenses=t.tentative;
   const change=(opening,closing)=>opening===null||closing===null?null:closing-opening;
-  return {expectedSavings:c.expectedSavings,expectedExpenses,actualCash:c.actualCash,actualBank:c.actualBank,
+  return {expectedSavings:c.expectedSavings,expectedSavingsEnd,theoreticalSavingsDifference,expectedExpenses,actualCash:c.actualCash,actualBank:c.actualBank,
     ...components,investment,lent,held,investmentDifference:change(components.openingInvestment,investment),
     lentDifference:change(components.openingLent,lent),heldDifference:change(components.openingHeld,held),
     cashFinancialAdjustment,bankFinancialAdjustment,netFinancialAdjustment,calculatedAccounts,actualAccounts,
@@ -117,6 +127,8 @@ export function closureFingerprint(state,key) {
     openingCash:m.cash,openingBank:m.bank,calculatedCash:t.cash,calculatedBank:t.bank,
     expectedSavings:c.expectedSavings,expectedExpenses:c.expectedExpenses,actualCash:c.actualCash,actualBank:c.actualBank,
     ...(c.inputVersion===2?{inputVersion:2,overviewExpectedExpenses:t.tentative,...componentValues(state,key),
+      cashFinancialAdjustment:c.cashFinancialAdjustment??0,bankFinancialAdjustment:c.bankFinancialAdjustment??0}:{}),
+    ...(c.inputVersion>=3?{inputVersion:3,overviewSavings:t.savings,...componentValues(state,key),
       cashFinancialAdjustment:c.cashFinancialAdjustment??0,bankFinancialAdjustment:c.bankFinancialAdjustment??0}:{})});
   let hash=14695981039346656037n;
   for(let index=0;index<input.length;index++)hash=BigInt.asUintN(64,(hash^BigInt(input.charCodeAt(index)))*1099511628211n);
@@ -140,7 +152,7 @@ export function closeMonth(state,key,reviewed=false,now=new Date().toISOString()
   const m=ensureMonth(state,key);
   // Upgrade only an explicitly edited/closed record, leaving older snapshots
   // and their original expected-expense fields intact until then.
-  m.closure={...blankClosure(),...c,...componentValues(state,key),inputVersion:2,expectedExpenses:summary.expectedExpenses,
+  m.closure={...blankClosure(),...c,...componentValues(state,key),inputVersion:c.inputVersion>=3?3:2,expectedExpenses:summary.expectedExpenses,
     status:'closed',needsReview:false,closedAt:now,savedAt:now,snapshot:summary};
   m.closure.reviewFingerprint=closureFingerprint(state,key);
 }
@@ -151,6 +163,8 @@ export function reopenMonth(state,key,now=new Date().toISOString()) {
 }
 export function closureComparison(state,key) {
   const c=getClosure(state,key);
-  const summary=c.status==='closed'&&c.snapshot?c.snapshot:closureSummary(state,key);
+  // Updated graphs show the current requested comparison for every selected
+  // month. The original closed snapshot remains stored and untouched.
+  const summary=closureSummary(state,key,{current:true});
   return {...summary,month:key,status:c.status,needsReview:closureNeedsReview(state,key)};
 }

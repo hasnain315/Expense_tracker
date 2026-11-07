@@ -511,3 +511,25 @@ input[type=checkbox]{accent-color:var(--green)}
   .closure-financial-adjustment summary strong{display:block;margin-left:0}
   .closure-financial-adjustment .closure-form-actions .button{white-space:normal;min-height:46px}
 }
+
+/* Fixed starting estimate and the current Overview estimate. */
+.closure-plan-fields{grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+.closure-plan-fields label{font-size:13px;display:flex;flex-direction:column;line-height:1.8}
+.closure-plan-fields .currency-input{margin-top:auto;flex-shrink:0}
+.closure-plan-fields small{font-weight:400;min-height:115px}
+.closure-plan-fields input[readonly]{font-weight:600}
+.closure-calculation-card .closure-financial-adjustment{margin-bottom:28px}
+.chart-start-savings{fill:#446fc2;background:#446fc2}
+.chart-end-savings{fill:#8861b6;background:#8861b6}
+.chart-calculated-unaccounted{fill:#bc6345;background:#bc6345}
+@media(max-width:1100px){
+  .closure-plan-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .closure-plan-fields label:last-of-type{grid-column:1/-1;max-width:470px}
+  .closure-plan-fields small{min-height:0}
+}
+@media(max-width:740px){
+  .closure-plan-fields{grid-template-columns:1fr}
+  .closure-plan-fields label{font-size:13px}
+  .closure-plan-fields label:last-of-type{grid-column:auto;max-width:none}
+  .closure-plan-fields small{min-height:0;font-size:12px}
+}

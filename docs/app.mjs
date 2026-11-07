@@ -1,9 +1,9 @@
-import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, getMonth, totals, loanTotals, budgetReferenceTotal, carryForward, carryHistory, resetYearCarryForward, resetMonthsCarryForward, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs?v=20261107-closure-balances-v2';
+import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, getMonth, totals, loanTotals, budgetReferenceTotal, carryForward, carryHistory, resetYearCarryForward, resetMonthsCarryForward, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs?v=20261107-savings-comparison-v3';
 import { readStatement } from './pdf-import.mjs?v=20261105-hdfc2';
 import { createWorkbook } from './xlsx.mjs';
-import { configured, connectCloud, friendlyError } from './cloud-store.mjs?v=20261107-closure-balances-v2';
-import { COMPONENT_FIELDS, copyMonthlyComponents, closureSummary, closureFingerprint, isClosureAdjustment, saveClosureInputs, recordUnaccountedExpense, closeMonth, reopenMonth } from './closure.mjs?v=20261107-closure-balances-v2';
-import { renderClosure, componentRows, lateClosureGuidance } from './closure-ui.mjs?v=20261107-closure-balances-v2';
+import { configured, connectCloud, friendlyError } from './cloud-store.mjs?v=20261107-savings-comparison-v3';
+import { COMPONENT_FIELDS, isClosureAdjustment, saveClosureInputs, reopenMonth } from './closure.mjs?v=20261107-savings-comparison-v3';
+import { renderClosure, componentRows, lateClosureGuidance } from './closure-ui.mjs?v=20261107-savings-comparison-v3';
 const $ = (selector, root=document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const paths = {
@@ -127,11 +127,11 @@ function renderHowToUse() {
     <li><h3>Enter your current investment values</h3><p>In <a href="#investment">Investment</a>, record the present value of all your investments, including money invested in a business or amounts you expect to recover from a business.</p></li>
     <li><h3>Review carry-forward balances and monthly budgets</h3><p>In <a href="#transactions">Transactions</a>, check whether you want to reset any category carry-forward balances. Review or update the <a href="#budget">Monthly Budget Reference</a> for the selected month.</p></li>
     <li><h3>Enter your starting financial details</h3><p>In <a href="#transactions">Transactions</a>, enter your bank balance, cash balance and other required financial details for the beginning of the selected month.</p></li>
-    <li><h3>Plan the month</h3><p>Open <a href="#closure">Month-End Closure</a> for the selected month and save your manually entered <strong>Expected Closing Savings</strong>. Review <strong>Expected Expenses</strong>, which is taken automatically from <strong>This Month’s Tentative Expenses</strong> on Overview. Save the investment value, money lent outstanding and money borrowed or held at the start of the month. Leave the closing fields blank until month-end. You can enter these values directly or use <strong>Use Monthly Records as Opening</strong> after reviewing the monthly records.</p></li>
+    <li><h3>Plan the month</h3><p>In <a href="#overview">Overview</a>, review <strong>Total Savings (Including Investments)</strong> for the selected month. Enter that amount into <strong>Expected Closing Savings Calculated at Start of Month</strong> in <a href="#closure">Month-End Closure</a>, then use <strong>Save Start-of-Month Expected Savings</strong>. This manually saved amount remains fixed unless you edit it, while Overview continues updating.</p><p>Enter and save the opening investment value, money lent outstanding and money borrowed or held directly in the component fields. Leave closing values blank until month-end. The opening and closing figures are independent; each read-only difference is closing minus opening.</p></li>
     <li><h3>Record the month’s transactions</h3><p>Add transactions manually or upload a supported bank or GPay statement in <a href="#transactions">Transactions</a>. Review imported entries, choose a category for each entry you keep, and save. You can check each category’s remaining balance against its monthly budget reference at any time.</p></li>
-  </ol></section><section class="card usage-guide closure-end-guide"><div class="usage-guide-intro"><span class="usage-guide-icon" aria-hidden="true">${icon('check')}</span><div><h2>At the end of each month</h2><p>Complete the closing figures when you are ready. You can also close an earlier month later.</p></div></div><ol class="closure-guide-closing-steps">
-    <li><h3>Close the month</h3><p>In <a href="#closure">Month-End Closure</a>, save the actual cash and bank balances as they stood at month-end. Enter the closing investment value, money lent outstanding and money borrowed or held, then review the three changes from the opening values. Compare expected and actual savings and expenses, check your savings target and review any Unaccounted Amount. The saved closing component values are used for Actual Closing Savings; tentative expenses are not subtracted again.</p><p>Review missing transactions and financial movements before recording an Unaccounted Expense. Under <strong>Net Investment, Lending and Borrowing Adjustment</strong>, enter only confirmed cash or bank movements missing from Transactions: positive for net financial outflows, negative for net financial inflows. Leave zero when the movements are already recorded. Investment market-value changes are not cash movements. If you later record a movement in Transactions, remove it from this adjustment too.</p><p>Tick the review checkbox, use <strong>Record Unaccounted Expense</strong> if needed, review again and choose <strong>Close Month</strong>. Adjustments are counted once without reducing the actual closing balances entered. Use <strong>Reopen Month</strong> for corrections. Select multiple months and years to compare results in the savings and expenses graphs. Later changes to relevant records flag a saved closure for review.</p></li>
-    <li><h3>Close a month later</h3>${lateClosureGuidance}<p>Use investment values and outstanding lending and borrowing balances as they stood at the selected month-end too. A bank statement can show the historical closing balance directly. For cash, use a month-end count or reconstruct it from all known subsequent movements.</p></li>
+  </ol></section><section class="card usage-guide closure-end-guide"><div class="usage-guide-intro"><span class="usage-guide-icon" aria-hidden="true">${icon('check')}</span><div><h2>At the end of each month</h2><p>Complete and save the month-end figures when you are ready, including for an earlier month.</p></div></div><ol class="closure-guide-closing-steps">
+    <li><h3>Review month-end savings</h3><p>In <a href="#closure">Month-End Closure</a>, enter the actual cash and bank balances as they stood at month-end and use <strong>Save Actual Balances</strong>. Enter the closing investment, lending and borrowing figures and use <strong>Save Component Figures</strong>. Each section saves separately for the selected month and year.</p><p><strong>Expected Closing Savings Calculated at End of Month</strong> is read-only and follows the selected month’s <strong>Total Savings (Including Investments)</strong> on Overview. <strong>Theoretical Savings Difference = expected savings at start − expected savings at end.</strong> Positive means the estimate decreased; negative means it increased.</p><p><strong>Actual Month-End Savings = Actual Closing Cash + Actual Closing Bank Balance + Investment Value at End of Month + Money Lent Outstanding at End of Month − Money Borrowed or Held at End of Month.</strong> Tentative expenses are not subtracted again from this actual figure.</p><p><strong>Unaccounted Amount = Expected Closing Savings Calculated at End of Month − Actual Month-End Savings − Net Investment, Lending and Borrowing Adjustment.</strong> Negative results are shown as ₹0. Save any additional net adjustment under its own control: positive reduces the calculated Unaccounted Amount; negative increases it. Count each relevant movement once.</p><p>The comparison does not create new expense transactions. Previously recorded Unaccounted Expenses stay in Actual Expenses once. Use the section Save buttons for changes; for an older closed record, use <strong>Reopen Month</strong> before editing its saved figures. Original closed snapshots remain stored.</p><p>Select multiple months and years in the graphs. The savings graph compares the fixed starting estimate, updated end-of-month estimate and Actual Month-End Savings. The expense graph shows recorded Actual Expenses alongside the calculated Unaccounted Amount; these bars are not added together. Hover, focus or tap a bar to see exact rupee amounts.</p></li>
+    <li><h3>Complete a month later</h3>${lateClosureGuidance}<p>Use investment values and outstanding lending and borrowing balances as they stood at the selected month-end too. A bank statement can show the historical closing balance directly. For cash, use a month-end count or reconstruct it from all known subsequent movements.</p></li>
   </ol></section><div class="inline-note usage-guide-reminder">${icon('check')} <p><strong>Switching months or years does not erase saved data.</strong> If a month already contains Transactions, Investment, or Money Lent and Borrowed records, you can review or update those records without entering everything again. A month with no saved investment or lending and borrowing data starts with empty records and zero totals. Returning to an earlier month shows that month’s saved records.</p></div>`;
 }
 function renderMonthClosure() {
@@ -253,20 +253,6 @@ document.addEventListener('click',async event=>{
   if(el.id==='compare-all'){comparisonMonths=new Set(Object.keys(state.months).filter(key=>state.months[key].closure));render();return;}
   if(el.id==='compare-none'){comparisonMonths=new Set();render();return;}
   if(el.id==='reopen-month'){if(await commit(s=>reopenMonth(s,month),'Month reopened for corrections.'))render();return;}
-  if(el.dataset.copyComponents) {
-    if(document.querySelector('form[id^="closure-"][data-dirty="true"]')){toast('Save your unsaved closure figures before copying monthly records.');return;}
-    const stage=el.dataset.copyComponents;
-    if(await commit(s=>copyMonthlyComponents(s,month,stage),`${stage==='opening'?'Opening':'Closing'} component figures copied and saved for this month.`)){comparisonMonths??=new Set();comparisonMonths.add(month);render();}return;
-  }
-  if(el.id==='record-unaccounted'||el.id==='close-month') {
-    if(document.querySelector('form[id^="closure-"][data-dirty="true"]')){toast('Save your unsaved closure figures before recording or closing.');return;}
-    if(!$('#closure-reviewed')?.checked){toast('Review the month-end figures and missing financial movements, then tick the review checkbox.');return;}
-    const summary=closureSummary(state,month),fingerprint=closureFingerprint(state,month);
-    if(el.id==='close-month'&&(summary.actualSavings===null||COMPONENT_FIELDS.some(field=>summary[field]===null))){toast('Save actual cash and bank balances and all six opening and closing component figures before closing.');return;}
-    if(el.id==='record-unaccounted')confirmAction({kind:'closure-adjustment',month,fingerprint},'Record unaccounted expense?',`For ${monthName(month)}, set the total linked cash adjustment to ${fmt(summary.cashShortfall)} and bank adjustment to ${fmt(summary.bankShortfall)}. Existing closure adjustments will be updated or removed as needed. Your actual closing balances remain unchanged.`,'Record expense');
-    else confirmAction({kind:'close-month',month,fingerprint},'Close this month?',`Save the closure for ${monthName(month)} with actual closing savings of ${summary.actualSavings===null?'not entered':fmt(summary.actualSavings)} and actual expenses of ${fmt(summary.actualExpenses)}. You can reopen it for corrections. Any later transaction changes will flag it for review.`,'Close Month');
-    return;
-  }
   if(el.id==='add-transaction')openTransaction();
   if(el.dataset.editTx)openTransaction(el.dataset.editTx);
   if(el.dataset.removeTx&&!isClosureAdjustment(current().transactions.find(t=>t.id===el.dataset.removeTx)||{}))confirmAction({kind:'tx',id:el.dataset.removeTx,month},'Remove transaction?','This removes the transaction and updates balances and category spending.','Remove transaction');
@@ -303,11 +289,6 @@ $('#confirm-form').addEventListener('submit',async event=>{
   if(!$('#reset-verification-label').hidden && $('#reset-verification').value!=='RESET'){$('#confirm-error').textContent='Type RESET exactly to continue.';return;}
   const action=pendingAction;
   if(await commit(s=>{
-    if(['closure-adjustment','close-month'].includes(action.kind)) {
-      if(closureFingerprint(s,action.month)!==action.fingerprint)throw Error('These records changed while you were reviewing. Review the latest figures and try again.');
-      if(action.kind==='closure-adjustment')recordUnaccountedExpense(s,action.month,true);
-      else closeMonth(s,action.month,true);
-    }
     if(action.kind==='tx')s.months[action.month].transactions=s.months[action.month].transactions.filter(t=>t.id!==action.id);
     if(action.kind==='loan'){const m=ensureMonth(s,action.month);m.moneyEntries=m.moneyEntries.filter(e=>e.id!==action.id);}
     if(action.kind==='carry'){const m=ensureMonth(s,action.month);m.carryReset=true;m.carryOverrides={};}
@@ -336,7 +317,7 @@ document.addEventListener('submit',async event=>{
         if(!text&&!COMPONENT_FIELDS.includes(key))throw Error('Enter an amount, including zero where appropriate.');
         return [key,text===''?null:money(text)];
       }));
-      const message=f.id==='closure-expected-form'?'Expected Closing Savings saved. Expected Expenses follows Overview automatically.':f.id==='closure-actual-form'?'Actual closing balances saved for this month.':f.id==='closure-components-form'?'Opening and closing component figures saved for this month.':'Financial movement adjustment saved for this month.';
+      const message=f.id==='closure-expected-form'?'Start-of-month expected savings saved. The end-of-month estimate follows Overview automatically.':f.id==='closure-actual-form'?'Actual closing balances saved for this month.':f.id==='closure-components-form'?'Opening and closing component figures saved for this month.':'Financial movement adjustment saved for this month.';
       if(await commit(s=>saveClosureInputs(s,month,values),message)){comparisonMonths??=new Set();comparisonMonths.add(month);render();}
     }catch(error){toast(error.message);}return;
   }
@@ -449,6 +430,13 @@ document.addEventListener('input',event=>{
   const f=event.target.closest('form[id^="closure-"]');
   if(!f||event.target.readOnly)return;
   f.dataset.dirty='true';
+  if(f.id==='closure-expected-form') {
+    try {
+      const start=f.elements.expectedSavings.value,end=f.elements.expectedSavingsEnd.value;
+      f.elements.theoreticalSavingsDifference.value=start===''||end===''?'':rupees(money(start)-money(end));
+    }catch{f.elements.theoreticalSavingsDifference.value='';}
+    return;
+  }
   if(f.id!=='closure-components-form')return;
   for(const row of componentRows) {
     try {
