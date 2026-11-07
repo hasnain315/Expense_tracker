@@ -1,4 +1,4 @@
-import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-overview-difference-v5';
+import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-closure-layout-v6';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.

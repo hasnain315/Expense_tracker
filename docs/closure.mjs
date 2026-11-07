@@ -1,4 +1,4 @@
-import { ensureMonth, getMonth, totals } from './core.mjs?v=20261107-overview-difference-v5';
+import { ensureMonth, getMonth, totals } from './core.mjs?v=20261107-closure-layout-v6';
 
 export const UNACCOUNTED_CATEGORY='month-end-unaccounted';
 export const UNACCOUNTED_NAME='Unaccounted Amount';

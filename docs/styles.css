@@ -479,7 +479,7 @@ input[type=checkbox]{accent-color:var(--green)}
 .closure-late-formula{padding:14px 16px;border-left:3px solid #93b57d;background:#fff;border-radius:0 7px 7px 0}
 .closure-savings-formula{padding:0 28px 26px;font-size:12px;line-height:1.9;color:#64735a}
 .closure-adjustment-summary{padding:0 28px 22px;display:grid;gap:12px;font-size:12px;line-height:1.9;color:#5f7055}
-.closure-adjustment-summary p:nth-child(2){padding:15px 18px;border:1px solid #dfe8d6;background:#f6f9f2;border-radius:9px;font-variant-numeric:tabular-nums}
+.closure-worked-calculation{padding:15px 18px;border:1px solid #dfe8d6;background:#f6f9f2;border-radius:9px;font-variant-numeric:tabular-nums}
 .closure-financial-adjustment{margin:0 28px 26px;border:1px solid #dce5d3;border-radius:10px;background:#fbfcf8;padding:0 20px;min-width:0}
 .closure-financial-adjustment summary{cursor:pointer;font-size:13px;color:var(--green);line-height:1.9;padding:17px 0;font-weight:600}
 .closure-financial-adjustment summary strong{white-space:nowrap;margin-left:10px}
@@ -534,4 +534,16 @@ input[type=checkbox]{accent-color:var(--green)}
   .closure-plan-fields label:last-of-type{grid-column:auto;max-width:none}
   .closure-plan-fields small{min-height:0;font-size:12px}
   .closure-savings-metrics{grid-template-columns:1fr}
+}
+
+/* Month-end balances, results and worked examples share section 3. */
+.closure-results-heading{padding:4px 28px 22px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.closure-results-heading h3{font-size:18px;color:var(--green);margin-bottom:8px}
+.closure-results-heading p{font-size:12px;color:#748169;line-height:1.9}
+.closure-adjustment-summary h3{font-size:16px;color:var(--green)}
+.closure-example{padding:14px 16px;border-left:3px solid #d39231;background:#fff9ed;border-radius:0 8px 8px 0}
+.chart-savings-unaccounted{fill:#cf8a2c;background:#cf8a2c;stroke:#fff;stroke-width:1}
+@media(max-width:740px){
+  .closure-results-heading{padding:0 20px 22px;flex-direction:column;gap:14px}
+  .closure-results-heading h3{font-size:17px}
 }

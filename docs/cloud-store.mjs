@@ -1,7 +1,7 @@
 import { firebaseConfig, ownerUid } from './firebase-config.mjs';
-import { uid } from './core.mjs?v=20261107-overview-difference-v5';
-import { flagClosureChanges } from './closure.mjs?v=20261107-overview-difference-v5';
-import { encodeState, decodeState, diffRecords, migrationTarget, INFORMATION_DOCUMENT } from './storage-codec.mjs?v=20261107-overview-difference-v5';
+import { uid } from './core.mjs?v=20261107-closure-layout-v6';
+import { flagClosureChanges } from './closure.mjs?v=20261107-closure-layout-v6';
+import { encodeState, decodeState, diffRecords, migrationTarget, INFORMATION_DOCUMENT } from './storage-codec.mjs?v=20261107-closure-layout-v6';
 
 export const configured=!!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.authDomain && firebaseConfig.appId && ownerUid);
 const SDK='https://www.gstatic.com/firebasejs/12.10.0';
