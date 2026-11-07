@@ -1,4 +1,4 @@
-import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-month-end-closure';
+import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-closure-balances-v2';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.
@@ -31,13 +31,20 @@ export function fromRupees(value) {
 const formatted=paise=>paise===null?'Not entered':`${paise<0?'-':''}₹${(Math.abs(paise)/100).toFixed(2)}`;
 const amountFields=paise=>({amountInRupees:toRupees(paise),amountFormatted:formatted(paise)});
 const base=recordType=>({storageVersion:STORAGE_VERSION,recordType,currency:'INR'});
-const closureAmounts={expectedSavings:'expectedClosingSavingsInRupees',expectedExpenses:'expectedExpensesInRupees',actualCash:'actualClosingCashInRupees',actualBank:'actualClosingBankBalanceInRupees'};
+const requiredClosureAmounts=['expectedSavings','expectedExpenses','actualCash','actualBank'];
+const closureAmounts={expectedSavings:'expectedClosingSavingsInRupees',expectedExpenses:'expectedExpensesInRupees',actualCash:'actualClosingCashInRupees',actualBank:'actualClosingBankBalanceInRupees',
+  openingInvestment:'investmentValueAtStartOfMonthInRupees',closingInvestment:'investmentValueAtEndOfMonthInRupees',
+  openingLent:'moneyLentOutstandingAtStartOfMonthInRupees',closingLent:'moneyLentOutstandingAtEndOfMonthInRupees',
+  openingHeld:'moneyBorrowedOrHeldAtStartOfMonthInRupees',closingHeld:'moneyBorrowedOrHeldAtEndOfMonthInRupees',
+  cashFinancialAdjustment:'cashFinancialMovementAdjustmentInRupees',bankFinancialAdjustment:'bankFinancialMovementAdjustmentInRupees'};
 const snapshotAmounts={...closureAmounts,investment:'closingInvestmentsInRupees',lent:'closingMoneyLentInRupees',held:'closingMoneyBorrowedOrHeldInRupees',
   calculatedCash:'calculatedCashBeforeAdjustmentInRupees',calculatedBank:'calculatedBankBeforeAdjustmentInRupees',recordedCash:'cashAdjustmentInRupees',recordedBank:'bankAdjustmentInRupees',
   calculatedSavings:'calculatedClosingSavingsInRupees',actualSavings:'actualClosingSavingsInRupees',savingsDifference:'savingsDifferenceInRupees',
   cashShortfall:'cashShortfallInRupees',bankShortfall:'bankShortfallInRupees',cashExcess:'cashExcessInRupees',bankExcess:'bankExcessInRupees',
   unaccounted:'unaccountedAmountInRupees',recordedUnaccounted:'recordedUnaccountedExpenseInRupees',remainingUnaccounted:'remainingUnaccountedInRupees',
-  expensesBeforeAdjustment:'recordedExpensesBeforeAdjustmentInRupees',actualExpenses:'actualExpensesInRupees',expensesDifference:'expensesDifferenceInRupees'};
+  expensesBeforeAdjustment:'recordedExpensesBeforeAdjustmentInRupees',actualExpenses:'actualExpensesInRupees',expensesDifference:'expensesDifferenceInRupees',
+  investmentDifference:'changeInInvestmentValueInRupees',lentDifference:'changeInMoneyLentOutstandingInRupees',heldDifference:'changeInMoneyBorrowedOrHeldInRupees',
+  netFinancialAdjustment:'netFinancialMovementAdjustmentInRupees',calculatedAccounts:'calculatedClosingCashAndBankBalanceInRupees',actualAccounts:'actualClosingCashAndBankBalanceInRupees'};
 function encodeAmounts(value,mapping) {
   const result={...value};
   for(const [key,field] of Object.entries(mapping))if(Object.hasOwn(result,key)){result[field]=toRupees(result[key]);delete result[key];}
@@ -144,7 +151,7 @@ export function decodeState(records) {
       checkMonth(month);
       if(!state.months[month]||state.months[month].closure)throw new Error('A closure is missing its month or is duplicated. Existing records have been kept.');
       const closure=decodeAmounts(inputs,closureAmounts);
-      if(!['open','closed'].includes(closure.status)||Object.keys(closureAmounts).some(key=>!Object.hasOwn(closure,key)))throw new Error('A month-end closure is incomplete. Existing records have been kept.');
+      if(!['open','closed'].includes(closure.status)||requiredClosureAmounts.some(key=>!Object.hasOwn(closure,key)))throw new Error('A month-end closure is incomplete. Existing records have been kept.');
       if(snapshot)closure.snapshot=decodeAmounts(snapshot,snapshotAmounts);
       state.months[month].closure=closure;
     } else if(type==='budgetReference') {

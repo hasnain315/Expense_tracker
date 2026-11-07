@@ -454,3 +454,60 @@ input[type=checkbox]{accent-color:var(--green)}
   .closure-guide-addition{padding:24px 20px}
 }
 @media(max-width:390px){.closure-metrics{grid-template-columns:1fr}.closure-components dd{font-size:20px}}
+
+/* Independent month-end component snapshots and compact closure controls. */
+.closure-component-fields{border:0;padding:0 28px 26px;margin:0;min-width:0}
+.closure-component-fields:disabled{opacity:.72}
+.closure-component-row{border-top:1px solid var(--line);padding:23px 0}
+.closure-component-row:first-child{border-top:0;padding-top:0}
+.closure-component-row h3{font-size:16px;color:var(--green);margin:0 0 18px}
+.closure-component-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.closure-component-inputs label{display:flex;flex-direction:column;gap:9px;font-size:12px;line-height:1.7;min-width:0}
+.closure-component-inputs .currency-input{display:flex;align-items:center;border:1px solid #dce3d4;border-radius:8px;background:white;overflow:hidden;min-width:0;margin-top:auto}
+.closure-component-inputs .currency-input>span{padding-left:12px;color:#73806a}
+.closure-component-inputs input{width:100%;min-width:0;border:0;border-radius:0;font-size:19px;padding:13px 10px;color:var(--green)}
+.closure-component-inputs label:has(input[readonly]) .currency-input{background:#edf4e8}
+.closure-component-inputs input[readonly]{background:#edf4e8;font-weight:600}
+.closure-component-inputs small{font-size:11px;line-height:1.8;color:#74806b;min-height:40px}
+.closure-component-note{padding:18px 28px 24px;border-top:1px solid var(--line);font-size:12px;line-height:1.9;color:#66765c}
+.closure-copy-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:18px;padding-top:18px;border-top:1px dashed #dce5d3}
+.closure-copy-actions>p{flex-basis:100%;font-size:11px;line-height:1.9;color:#74816a;max-width:85ch}
+.closure-copy-actions a{color:var(--green);text-decoration:underline}
+.closure-late-help{margin:0 28px 22px;padding:22px 24px;background:#f3f7ee;border:1px solid #dce7d3;border-radius:12px}
+.closure-late-help h3{font-size:16px;color:var(--green);margin-bottom:12px}
+.closure-late-help p{font-size:12px;color:#5e7053;line-height:1.9;margin-top:10px}
+.closure-late-formula{padding:14px 16px;border-left:3px solid #93b57d;background:#fff;border-radius:0 7px 7px 0}
+.closure-savings-formula{padding:0 28px 26px;font-size:12px;line-height:1.9;color:#64735a}
+.closure-adjustment-summary{padding:0 28px 22px;display:grid;gap:12px;font-size:12px;line-height:1.9;color:#5f7055}
+.closure-adjustment-summary p:nth-child(2){padding:15px 18px;border:1px solid #dfe8d6;background:#f6f9f2;border-radius:9px;font-variant-numeric:tabular-nums}
+.closure-financial-adjustment{margin:0 28px 26px;border:1px solid #dce5d3;border-radius:10px;background:#fbfcf8;padding:0 20px;min-width:0}
+.closure-financial-adjustment summary{cursor:pointer;font-size:13px;color:var(--green);line-height:1.9;padding:17px 0;font-weight:600}
+.closure-financial-adjustment summary strong{white-space:nowrap;margin-left:10px}
+.closure-financial-adjustment>p{font-size:12px;line-height:1.9;color:#65765b;margin:0 0 14px}
+.closure-financial-adjustment .closure-fields{padding:8px 0 22px;gap:20px}
+.closure-financial-adjustment .closure-fields label{font-size:12px}
+.closure-guide-closing-steps{counter-reset:guide-step 6!important}
+.usage-guide li p+p{margin-top:14px}
+.usage-guide .closure-late-formula{margin:14px 0}
+@media(max-width:1050px){
+  .closure-component-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .closure-component-inputs label:last-child{grid-column:1/-1;max-width:360px}
+}
+@media(max-width:740px){
+  .closure-component-fields{padding:0 20px 24px}
+  .closure-component-inputs{grid-template-columns:1fr;gap:18px}
+  .closure-component-inputs label{font-size:13px}
+  .closure-component-inputs label:last-child{grid-column:auto;max-width:none}
+  .closure-component-inputs input{font-size:20px;min-height:48px}
+  .closure-component-inputs small{font-size:12px;min-height:0}
+  .closure-component-note{padding:19px 20px 24px}
+  .closure-copy-actions{align-items:stretch;flex-direction:column}
+  .closure-copy-actions .button{font-size:12px;min-height:44px}
+  .closure-copy-actions>p{font-size:12px}
+  .closure-late-help{margin:0 20px 22px;padding:20px 18px}
+  .closure-savings-formula{padding:0 20px 24px}
+  .closure-adjustment-summary{padding:0 20px 22px}
+  .closure-financial-adjustment{margin:0 20px 24px;padding:0 16px}
+  .closure-financial-adjustment summary strong{display:block;margin-left:0}
+  .closure-financial-adjustment .closure-form-actions .button{white-space:normal;min-height:46px}
+}
