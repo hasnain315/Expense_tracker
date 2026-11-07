@@ -1,6 +1,7 @@
 import { firebaseConfig, ownerUid } from './firebase-config.mjs';
-import { uid } from './core.mjs?v=20261106-monthly-guide';
-import { encodeState, decodeState, diffRecords, migrationTarget, INFORMATION_DOCUMENT } from './storage-codec.mjs?v=20261106-monthly-guide';
+import { uid } from './core.mjs?v=20261107-month-end-closure';
+import { flagClosureChanges } from './closure.mjs?v=20261107-month-end-closure';
+import { encodeState, decodeState, diffRecords, migrationTarget, INFORMATION_DOCUMENT } from './storage-codec.mjs?v=20261107-month-end-closure';
 
 export const configured=!!(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.authDomain && firebaseConfig.appId && ownerUid);
 const SDK='https://www.gstatic.com/firebasejs/12.10.0';
@@ -201,6 +202,7 @@ export async function connectCloud({onSession,onData,onStatus,onReset=()=>{}},de
     resetPassword:email=>authSDK.sendPasswordResetEmail(auth,email),
     async save(state,expectedRevision) {
       if(!userId||auth.currentUser?.uid!==userId)throw new Error('Sign in before saving records.');
+      flagClosureChanges(state);
       return writeRecords(encodeState(state),expectedRevision);
     },
     async resetAll(expectedRevision) {

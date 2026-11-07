@@ -1,7 +1,9 @@
-import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, getMonth, totals, loanTotals, budgetReferenceTotal, carryForward, carryHistory, resetYearCarryForward, resetMonthsCarryForward, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs?v=20261107-zero-tentative-fallback';
+import { uid, money, rupees, formatMoney as fmt, monthNow, monthName, createState, ensureMonth, getMonth, totals, loanTotals, budgetReferenceTotal, carryForward, carryHistory, resetYearCarryForward, resetMonthsCarryForward, validateTransaction, validateLoan, applyBudgetReference, migrateLegacy, hasRecords } from './core.mjs?v=20261107-month-end-closure';
 import { readStatement } from './pdf-import.mjs?v=20261105-hdfc2';
 import { createWorkbook } from './xlsx.mjs';
-import { configured, connectCloud, friendlyError } from './cloud-store.mjs?v=20261106-monthly-guide';
+import { configured, connectCloud, friendlyError } from './cloud-store.mjs?v=20261107-month-end-closure';
+import { closureSummary, closureFingerprint, isClosureAdjustment, saveClosureInputs, recordUnaccountedExpense, closeMonth, reopenMonth } from './closure.mjs?v=20261107-month-end-closure';
+import { renderClosure } from './closure-ui.mjs?v=20261107-month-end-closure';
 const $ = (selector, root=document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const paths = {
@@ -33,6 +35,7 @@ const screens = [
   {id:'budget',label:'Monthly Budget Reference',short:'Budget',icon:'budget',eyebrow:'A PLAN FOR EVERY RUPEE',subtitle:'One shared reference that changes only when you edit it.'},
   {id:'money',label:'Money Lent and Borrowed',short:'Lent & borrowed',icon:'lent',eyebrow:'KEEP TRACK OF EVERY RUPEE',subtitle:'Outstanding amounts you have lent and borrowed for the selected month.'},
   {id:'investment',label:'Investment',short:'Investment',icon:'investment',eyebrow:'YOUR MONEY, GROWING',subtitle:'Record investment values for the selected month.'},
+  {id:'closure',label:'Month-End Closure',short:'Month closure',icon:'check',eyebrow:'RECONCILE AND REFLECT',subtitle:'Compare expectations with actual savings and close each month with clarity.'},
   {id:'downloads',label:'Downloads',short:'Downloads',icon:'downloads',eyebrow:'YOUR RECORDS, READY TO GO',subtitle:'Download category carry-forward data as an Excel workbook.'},
   {id:'how-to-use',label:'How to Use',short:'Guide',icon:'file',eyebrow:'START EACH MONTH WITH CLARITY',subtitle:'A simple guide to entering and reviewing your monthly records.'}
 ];
@@ -41,9 +44,10 @@ let legacy=null;
 try {const raw=localStorage.getItem(KEY);if(raw){const saved=JSON.parse(raw);if(saved.version===1)legacy=saved;}}catch {/* Do not overwrite unreadable legacy data. */}
 let state=createState(),month=monthNow(),screen='overview',cloud=null,phase=configured?'loading':'setup',session=null,revision=0,busy=false,pendingSnapshot=null,connectionError='';
 let editingId=null,editingSnapshot=null,pendingAction=null,carryEdit=null,reviewRows=[],importName='',editingLoanId=null,loanSnapshot=null,loanKind='lent';
+let comparisonMonths=null;
 let resetYear=month.slice(0,4),resetMonths=new Set();
 const current=()=>getMonth(state,month);
-const categoryOptions=(selected='')=>`<option value="">Choose category</option>${current().budgets.map(b=>`<option value="${esc(b.id)}" ${b.id===selected?'selected':''}>${esc(b.name)}</option>`).join('')}`;
+const categoryOptions=(selected='')=>`<option value="">Choose category</option>${current().budgets.filter(b=>b.id!=='month-end-unaccounted').map(b=>`<option value="${esc(b.id)}" ${b.id===selected?'selected':''}>${esc(b.name)}</option>`).join('')}`;
 const empty=(title,description,iconName='file')=>`<div class="empty-state"><span class="empty-icon">${icon(iconName)}</span><h3>${title}</h3><p>${description}</p></div>`;
 function toast(message) {const el=$('#toast');el.textContent=message;el.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.hidden=true,6500);}
 function storageStatus(message,error=false) {const el=$('#save-status');el.classList.toggle('error',error);el.textContent=message;el.title=message;}
@@ -94,7 +98,7 @@ function renderTransactions() {
   const monthOptions=Array.from({length:12},(_,index)=>({number:index+1,name:new Date(2000,index,1).toLocaleDateString('en-IN',{month:'long'})}));
   const inputs=[['cash','Opening cash balance','Leave blank to use the previous closing cash balance.'],['bank','Opening bank balance','Leave blank to use the previous closing bank balance.']];
   return `<section class="card opening-card"><div class="card-heading"><div><h2>Monthly financial details</h2><p>${esc(monthName(month))} · Each change saves to Firebase when you leave the field.</p></div><span class="subtle-tag">${icon('calendar')} Monthly</span></div><div class="monthly-fields">${inputs.map(([key,label,hint])=>`<label>${label}<div class="currency-input"><span>₹</span><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="Use previous closing balance" data-month-field="${key}" aria-label="${label}" value="${m[key]==null?'':rupees(m[key])}"></div><small>${hint}</small></label>`).join('')}${[['lent','Money Lent to Others','Sum of lending entries saved for this month.'],['held','Other People’s Money Held by Me','Sum of borrowing entries saved for this month.']].map(([key,label,hint])=>`<label>${label}<div class="currency-input"><span>₹</span><input readonly aria-label="${label}" value="${rupees(t[key])}"></div><small>${hint} <a href="#money">Manage entries</a></small></label>`).join('')}</div></section>
-  <section class="card transaction-card"><div class="card-heading transaction-heading"><div><h2>Transactions <span class="count">${kept.length}</span></h2><p>${esc(monthName(month))} · Actual retained expenses: <strong>${fmt(t.actual)}</strong></p></div><div class="button-group"><button class="button secondary" id="open-import">${icon('upload')} Upload PDF</button><button class="button primary" id="add-transaction">${icon('plus')} Add transaction</button></div></div>${transactions.length?`<div class="table-scroll"><table class="transaction-table"><thead><tr><th class="keep-column">Keep</th><th>Date / description</th><th>Category</th><th>Account</th><th class="right">Amount</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${[...transactions].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`<tr class="${t.keep===false?'excluded':''}"><td><input class="checkbox" type="checkbox" data-keep="${esc(t.id)}" aria-label="Keep ${esc(t.description||'transaction on '+t.date)}" ${t.keep!==false?'checked':''}></td><td><strong class="transaction-description">${esc(t.description||'No description')}</strong><small>${esc(t.date)}${t.source==='PDF'?' · PDF':''}${t.keep===false?' · Excluded from calculations':''}</small></td><td><span class="category-chip">${esc(t.categoryName||'Choose a category')}${t.type==='income'?' · Income':''}</span></td><td>${icon(t.wallet)}<span>${t.wallet==='cash'?'Cash':'Bank'}</span></td><td class="right amount ${t.type==='income'?'positive':''}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</td><td><div class="row-actions"><button class="icon-button" data-edit-tx="${esc(t.id)}" aria-label="Edit ${esc(t.description||t.date)}">${icon('edit')}</button><button class="icon-button" data-remove-tx="${esc(t.id)}" aria-label="Remove ${esc(t.description||t.date)}">${icon('trash')}</button></div></td></tr>`).join('')}</tbody></table></div>`:empty('Your transactions for this month','Upload a PDF statement or add a transaction.','transactions')}</section>
+  <section class="card transaction-card"><div class="card-heading transaction-heading"><div><h2>Transactions <span class="count">${kept.length}</span></h2><p>${esc(monthName(month))} · Actual retained expenses: <strong>${fmt(t.actual)}</strong></p></div><div class="button-group"><button class="button secondary" id="open-import">${icon('upload')} Upload PDF</button><button class="button primary" id="add-transaction">${icon('plus')} Add transaction</button></div></div>${transactions.length?`<div class="table-scroll"><table class="transaction-table"><thead><tr><th class="keep-column">Keep</th><th>Date / description</th><th>Category</th><th>Account</th><th class="right">Amount</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${[...transactions].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`<tr class="${t.keep===false?'excluded':''}"><td><input class="checkbox" type="checkbox" data-keep="${esc(t.id)}" ${isClosureAdjustment(t)?'disabled':''} aria-label="Keep ${esc(t.description||'transaction on '+t.date)}" ${t.keep!==false?'checked':''}></td><td><strong class="transaction-description">${esc(t.description||'No description')}</strong><small>${esc(t.date)}${t.source==='PDF'?' · PDF':isClosureAdjustment(t)?' · Closure adjustment':''}${t.keep===false?' · Excluded from calculations':''}</small></td><td><span class="category-chip">${esc(t.categoryName||'Choose a category')}${t.type==='income'?' · Income':''}</span></td><td>${icon(t.wallet)}<span>${t.wallet==='cash'?'Cash':'Bank'}</span></td><td class="right amount ${t.type==='income'?'positive':''}">${t.type==='income'?'+':'−'}${fmt(t.amount)}</td><td><div class="row-actions">${isClosureAdjustment(t)?'<a class="text-link" href="#closure">Review closure</a>':`<button class="icon-button" data-edit-tx="${esc(t.id)}" aria-label="Edit ${esc(t.description||t.date)}">${icon('edit')}</button><button class="icon-button" data-remove-tx="${esc(t.id)}" aria-label="Remove ${esc(t.description||t.date)}">${icon('trash')}</button>`}</div></td></tr>`).join('')}</tbody></table></div>`:empty('Your transactions for this month','Upload a PDF statement or add a transaction.','transactions')}</section>
   <section class="card"><div class="card-heading"><div><h2>Category carry-forward</h2><p>Balances continue across every month and year. They reset only when you choose.</p></div><button class="button secondary" id="reset-carry">Reset carry-forward</button></div><p class="carry-explanation">Previous carry-forward + this month’s category budget − actual retained category expenses = closing carry-forward. A saved edit or manual reset replaces the closing balance.</p>${renderCarry()}</section>
   <section class="card reset-card"><div><h2>Manual reset</h2><p>Switching months or years preserves your saved data. Nothing resets automatically.</p></div><label class="reset-year-control" for="reset-year">Year for carry-forward reset<select id="reset-year">${years.map(year=>`<option value="${year}" ${year===resetYear?'selected':''}>${year}</option>`).join('')}</select></label><div class="reset-options"><div class="reset-option"><button class="button secondary" id="reset-year-carry" aria-describedby="reset-year-description">Reset Selected Year Carry-Forward Data</button><p id="reset-year-description">Sets category closing carry-forward balances to zero for the selected year and recalculates all later months. Transactions, budgets and other financial records remain unchanged.</p></div><div class="reset-option"><fieldset class="reset-month-selection"><legend>Choose one or more months in ${resetYear}</legend><div class="reset-month-grid">${monthOptions.map(({number,name})=>`<label><input type="checkbox" data-reset-month="${number}" ${resetMonths.has(number)?'checked':''}><span>${name}</span></label>`).join('')}</div></fieldset><button class="button secondary" id="reset-months-carry" aria-describedby="reset-months-description" ${resetMonths.size?'':'disabled'}>Reset Selected Months Carry-Forward Data</button><p id="reset-months-description">Sets category closing carry-forward balances to zero for the selected months and recalculates all later months. Transactions, budgets and other financial records remain unchanged.</p></div><div class="reset-option"><button class="button danger-outline" id="reset-all" aria-describedby="reset-all-description">Reset All Data</button><p id="reset-all-description">Permanently deletes all saved data across every month and year. This action cannot be undone.</p></div></div>${m.carryReset?'<div class="button-group"><button class="button secondary" id="undo-carry-reset">Undo this month’s carry-forward reset</button></div>':''}</section>`;
 }
@@ -124,7 +128,11 @@ function renderHowToUse() {
     <li><h3>Review carry-forward balances and monthly budgets</h3><p>In <a href="#transactions">Transactions</a>, check whether you want to reset any category carry-forward balances. Review or update the <a href="#budget">Monthly Budget Reference</a> for the selected month.</p></li>
     <li><h3>Enter your starting financial details</h3><p>In <a href="#transactions">Transactions</a>, enter your bank balance, cash balance and other required financial details for the beginning of the selected month.</p></li>
     <li><h3>Record the month’s transactions</h3><p>Add transactions manually or upload a supported bank or GPay statement in <a href="#transactions">Transactions</a>. Review imported entries, choose a category for each entry you keep, and save. You can check each category’s remaining balance against its monthly budget reference at any time.</p></li>
-  </ol></section><div class="inline-note usage-guide-reminder">${icon('check')} <p><strong>Switching months or years does not erase saved data.</strong> If a month already contains Transactions, Investment, or Money Lent and Borrowed records, you can review or update those records without entering everything again. A month with no saved investment or lending and borrowing data starts with empty records and zero totals. Returning to an earlier month shows that month’s saved records.</p></div>`;
+  </ol></section><div class="inline-note usage-guide-reminder">${icon('check')} <p><strong>Switching months or years does not erase saved data.</strong> If a month already contains Transactions, Investment, or Money Lent and Borrowed records, you can review or update those records without entering everything again. A month with no saved investment or lending and borrowing data starts with empty records and zero totals. Returning to an earlier month shows that month’s saved records.</p></div><section class="card closure-guide-addition"><h2>Plan and close each month</h2><p><strong>At the start of each month</strong>, open <a href="#closure">Month-End Closure</a> and manually enter and save <strong>Expected Closing Savings</strong> and <strong>Expected Expenses</strong> for that month.</p><p><strong>At the end of any month</strong>, enter the actual closing balances in <a href="#closure">Month-End Closure</a>. Compare expected and actual savings and expenses, check whether your savings target was achieved, and review any unaccounted amount. You can also select multiple months and years to compare the results in graphs.</p></section>`;
+}
+function renderMonthClosure() {
+  if(comparisonMonths===null)comparisonMonths=new Set(Object.keys(state.months).filter(key=>state.months[key].closure).sort().slice(-6));
+  return renderClosure(state,month,comparisonMonths);
 }
 function renderDownloads() {
   const keys=Object.keys(state.months),years=[...new Set([month.slice(0,4),...keys.map(k=>k.slice(0,4))])].sort().reverse();
@@ -138,7 +146,7 @@ function render() {
   $('#selected-month').value=month;$('#period-control').hidden=phase!=='ready'||['downloads','how-to-use'].includes(screen);
   $('#account-button').hidden=!session;$('#account-button').textContent='Sign out';$('#account-button').title=session?.email||'';
   const legacyNotice=legacy&&!hasRecords(state)?`<div class="migration-note"><p>Records from the older version are saved in this browser. You can move them into this empty Firebase ledger.</p><button class="button secondary" id="import-legacy">Import existing records</button></div>`:'';
-  $('#screen').innerHTML=phase==='ready'?legacyNotice+({overview:renderOverview,transactions:renderTransactions,budget:renderBudget,money:renderLoans,investment:renderInvestment,downloads:renderDownloads,'how-to-use':renderHowToUse})[screen]():renderGate();
+  $('#screen').innerHTML=phase==='ready'?legacyNotice+({overview:renderOverview,transactions:renderTransactions,budget:renderBudget,money:renderLoans,investment:renderInvestment,closure:renderMonthClosure,downloads:renderDownloads,'how-to-use':renderHowToUse})[screen]():renderGate();
   prepareDownloads();
   if(connectionError)storageStatus(connectionError,true);
   document.title=`${meta.label} · Pocket Ledger`;
@@ -153,6 +161,7 @@ $('#selected-month').addEventListener('change',event=>selectMonth(event.target.v
 for(const [id,delta] of [['previous-month',-1],['next-month',1]])$('#'+id).addEventListener('click',()=>{const d=new Date(month+'-01T12:00:00');d.setMonth(d.getMonth()+delta);selectMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);});
 window.addEventListener('hashchange',()=>{carryEdit=null;render();window.scrollTo(0,0);});
 function openTransaction(id=null) {
+  if(id&&isClosureAdjustment(current().transactions.find(t=>t.id===id)||{})){toast('Reopen Month-End Closure to correct this adjustment.');return;}
   editingId=id;
   const f=$('#transaction-form'),t=id?current().transactions.find(t=>t.id===id):null;
   editingSnapshot=t?JSON.stringify(t):null;
@@ -195,13 +204,14 @@ function confirmAction(action,title,description,label,requiresText=false) {
 }
 function clearBrowserFinancialData() {
   legacy=null;reviewRows=[];importName='';editingId=null;editingSnapshot=null;editingLoanId=null;loanSnapshot=null;
-  resetMonths.clear();resetYear=month.slice(0,4);
+  resetMonths.clear();resetYear=month.slice(0,4);comparisonMonths=null;
   try{localStorage.removeItem(KEY);}catch{/* Browser storage may be unavailable. */}
   for(const id of ['transaction-form','loan-form'])$('#'+id).reset();
   $('#import-review').innerHTML='';$('#pdf-file').value='';$('#pdf-password').value='';
 }
 document.addEventListener('change',async event=>{
   const el=event.target;
+  if(el.dataset.compareMonth){comparisonMonths??=new Set();if(el.checked)comparisonMonths.add(el.dataset.compareMonth);else comparisonMonths.delete(el.dataset.compareMonth);render();return;}
   if(el.id==='download-year'||el.id==='download-month')prepareDownloads();
   if(el.id==='reset-year'){resetYear=el.value;resetMonths.clear();render();}
   if(el.dataset.resetMonth) {
@@ -218,7 +228,7 @@ document.addEventListener('change',async event=>{
     }catch(error){toast(error.message);el.value=current()[el.dataset.monthField]==null?'':rupees(current()[el.dataset.monthField]);}
   }
   if(el.dataset.keep) {
-    await commit(s=>{const tx=ensureMonth(s,month).transactions.find(t=>t.id===el.dataset.keep);if(!tx)throw Error('This entry no longer exists.');tx.keep=el.checked;});render();
+    await commit(s=>{const tx=ensureMonth(s,month).transactions.find(t=>t.id===el.dataset.keep);if(!tx)throw Error('This entry no longer exists.');if(isClosureAdjustment(tx))throw Error('Manage this adjustment in Month-End Closure.');tx.keep=el.checked;});render();
   }
 });
 document.addEventListener('click',async event=>{
@@ -236,9 +246,19 @@ document.addEventListener('click',async event=>{
     try{await cloud.resetPassword(email.value.trim());toast('If this email belongs to your account, a reset link will be sent.');}catch(error){toast(friendlyError(error));}finally{el.disabled=false;}return;
   }
   if(phase!=='ready'||busy)return;
+  if(el.id==='compare-all'){comparisonMonths=new Set(Object.keys(state.months).filter(key=>state.months[key].closure));render();return;}
+  if(el.id==='compare-none'){comparisonMonths=new Set();render();return;}
+  if(el.id==='reopen-month'){if(await commit(s=>reopenMonth(s,month),'Month reopened for corrections.'))render();return;}
+  if(el.id==='record-unaccounted'||el.id==='close-month') {
+    if(!$('#closure-reviewed')?.checked){toast('Review missing transactions, transfers, investments, lending and borrowing, then tick the review checkbox.');return;}
+    const summary=closureSummary(state,month),fingerprint=closureFingerprint(state,month);
+    if(el.id==='record-unaccounted')confirmAction({kind:'closure-adjustment',month,fingerprint},'Record unaccounted expense?',`For ${monthName(month)}, set the total linked cash adjustment to ${fmt(summary.cashShortfall)} and bank adjustment to ${fmt(summary.bankShortfall)}. Existing closure adjustments will be updated or removed as needed. Your actual closing balances remain unchanged.`,'Record expense');
+    else confirmAction({kind:'close-month',month,fingerprint},'Close this month?',`Save the closure for ${monthName(month)} with actual closing savings of ${summary.actualSavings===null?'not entered':fmt(summary.actualSavings)} and actual expenses of ${fmt(summary.actualExpenses)}. You can reopen it for corrections. Any later transaction changes will flag it for review.`,'Close Month');
+    return;
+  }
   if(el.id==='add-transaction')openTransaction();
   if(el.dataset.editTx)openTransaction(el.dataset.editTx);
-  if(el.dataset.removeTx)confirmAction({kind:'tx',id:el.dataset.removeTx,month},'Remove transaction?','This removes the transaction and updates balances and category spending.','Remove transaction');
+  if(el.dataset.removeTx&&!isClosureAdjustment(current().transactions.find(t=>t.id===el.dataset.removeTx)||{}))confirmAction({kind:'tx',id:el.dataset.removeTx,month},'Remove transaction?','This removes the transaction and updates balances and category spending.','Remove transaction');
   if(el.dataset.editCarry){carryEdit=el.dataset.editCarry;render();$('[data-carry-form] input')?.focus();}
   if(el.hasAttribute('data-cancel-carry')){carryEdit=null;render();}
   if(el.dataset.resetCarry && await commit(s=>{delete ensureMonth(s,month).carryOverrides[el.dataset.resetCarry];},'Manual edit removed.')){carryEdit=null;render();}
@@ -254,7 +274,7 @@ document.addEventListener('click',async event=>{
     const names=months.map(number=>monthName(`${year}-${String(number).padStart(2,'0')}`)).join(', ');
     confirmAction({kind:'months-carry',year,months},'Reset selected months’ carry-forward?',`This sets every category’s closing carry-forward balance to zero and clears manual carry-forward edits for: ${names}. Each succeeding month uses the preceding month’s updated closing balances, including across years. Later manual adjustment amounts and separate resets are preserved. Transactions, monthly category budgets and other financial records remain unchanged.`,'Reset selected months');
   }
-  if(el.id==='reset-all')confirmAction({kind:'all'},'Permanently delete all saved data?','WARNING: This permanently deletes all saved application data across every month and year, including transactions, category carry-forward balances, monthly budget references, lending, borrowing, investments, financial records, saved financial settings and older records saved in this browser. This action cannot be undone. Your sign-in account remains. Type RESET and confirm to delete everything.','Permanently delete all data',true);
+  if(el.id==='reset-all')confirmAction({kind:'all'},'Permanently delete all saved data?','WARNING: This permanently deletes all saved application data across every month and year, including transactions, category carry-forward balances, monthly budget references, lending, borrowing, investments, Month-End Closure records, financial records, saved financial settings and older records saved in this browser. This action cannot be undone. Your sign-in account remains. Type RESET and confirm to delete everything.','Permanently delete all data',true);
   if(el.id==='import-legacy')confirmAction({kind:'legacy'},'Import the older browser records?','Records saved on this browser will be copied to your empty Firebase ledger. Saved monthly lent and held totals stay in their own months. The older shared investments are preserved in the latest saved month. Review and assign the correct names afterwards.','Import records');
   if(el.id==='apply-budget' && await commit(s=>applyBudgetReference(s,month),'Reference applied to the selected month.'))render();
   if(el.dataset.removeBudget) {
@@ -272,6 +292,11 @@ $('#confirm-form').addEventListener('submit',async event=>{
   if(!$('#reset-verification-label').hidden && $('#reset-verification').value!=='RESET'){$('#confirm-error').textContent='Type RESET exactly to continue.';return;}
   const action=pendingAction;
   if(await commit(s=>{
+    if(['closure-adjustment','close-month'].includes(action.kind)) {
+      if(closureFingerprint(s,action.month)!==action.fingerprint)throw Error('These records changed while you were reviewing. Review the latest figures and try again.');
+      if(action.kind==='closure-adjustment')recordUnaccountedExpense(s,action.month,true);
+      else closeMonth(s,action.month,true);
+    }
     if(action.kind==='tx')s.months[action.month].transactions=s.months[action.month].transactions.filter(t=>t.id!==action.id);
     if(action.kind==='loan'){const m=ensureMonth(s,action.month);m.moneyEntries=m.moneyEntries.filter(e=>e.id!==action.id);}
     if(action.kind==='carry'){const m=ensureMonth(s,action.month);m.carryReset=true;m.carryOverrides={};}
@@ -290,6 +315,14 @@ document.addEventListener('submit',async event=>{
   if(f.id==='sign-in-form') {
     event.preventDefault();const button=$('button[type=submit]',f);button.disabled=true;$('#sign-in-error').textContent='';
     try{await cloud.signIn(f.elements.email.value.trim(),f.elements.password.value);f.elements.password.value='';}catch(error){$('#sign-in-error').textContent=friendlyError(error);}finally{button.disabled=false;}return;
+  }
+  if(f.id==='closure-expected-form'||f.id==='closure-actual-form') {
+    event.preventDefault();
+    try {
+      const fields=f.id==='closure-expected-form'?['expectedSavings','expectedExpenses']:['actualCash','actualBank'];
+      const values=Object.fromEntries(fields.map(key=>{if(f.elements[key].value.trim()==='')throw Error('Enter both amounts, including zero where appropriate.');return [key,money(f.elements[key].value)];}));
+      if(await commit(s=>saveClosureInputs(s,month,values),f.id==='closure-expected-form'?'Expected figures saved for this month.':'Actual closing balances saved for this month.')){comparisonMonths??=new Set();comparisonMonths.add(month);render();}
+    }catch(error){toast(error.message);}return;
   }
   if(!f.matches('[data-budget],#add-budget,[data-investment],#add-investment,[data-carry-form],#tentative-expenses-form'))return;
   event.preventDefault();
@@ -381,10 +414,16 @@ render();storageStatus(configured?'Connecting to Firebase…':'Firebase setup re
 if(configured) {
   try {
     cloud=await connectCloud({
-      onSession:user=>{session=user;state=createState();revision=0;pendingSnapshot=null;phase=user?'loading':'signed-out';connectionError='';for(const d of document.querySelectorAll('dialog[open]'))d.close();render();if(!user)storageStatus('Sign in to access your records');},
+      onSession:user=>{comparisonMonths=null;session=user;state=createState();revision=0;pendingSnapshot=null;phase=user?'loading':'signed-out';connectionError='';for(const d of document.querySelectorAll('dialog[open]'))d.close();render();if(!user)storageStatus('Sign in to access your records');},
       onData:acceptSnapshot,
       onReset:clearBrowserFinancialData,
       onStatus:(message,error=false)=>{storageStatus(message,error);if(error){connectionError=message;phase='loading';render();}}
     });
   }catch(error){phase='loading';connectionError=friendlyError(error);storageStatus(connectionError,true);render();}
 }
+
+function showChartAmount(event) {
+  const bar=event.target.closest('[data-chart-detail]');
+  if(bar){const readout=bar.closest('.closure-chart')?.querySelector('[data-chart-readout]');if(readout)readout.textContent=bar.dataset.chartDetail;}
+}
+for(const type of ['pointerover','focusin','click'])document.addEventListener(type,showChartAmount);

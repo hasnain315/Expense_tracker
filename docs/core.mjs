@@ -71,10 +71,12 @@ export function ensureMonth(state,key) {
 }
 export function applyBudgetReference(state,key) {
   const month=ensureMonth(state,key);
-  if (month.transactions.some(t=>t.category && !state.budgetReference.some(b=>b.id===t.category))) {
+  const closureBudget=month.budgets.find(b=>b.id==='month-end-unaccounted');
+  if (month.transactions.some(t=>t.category && !state.budgetReference.some(b=>b.id===t.category) && !(t.source==='Month-End Closure'&&t.category===closureBudget?.id))) {
     throw new Error('A transaction in this month uses a category missing from the reference. Reassign that transaction before applying the reference.');
   }
   month.budgets=copy(state.budgetReference);
+  if(closureBudget&&!month.budgets.some(b=>b.id===closureBudget.id))month.budgets.push(copy(closureBudget));
   for (const t of month.transactions) if (t.category) t.categoryName=month.budgets.find(b=>b.id===t.category)?.name || t.categoryName;
 }
 export function loanTotals(state,key) {

@@ -1,4 +1,4 @@
-import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261106-monthly-guide';
+import { createState, checkMonth, migrateMonthlyRecords } from './core.mjs?v=20261107-month-end-closure';
 
 // The website continues to use integer paise internally. ONLY the persistence
 // boundary converts money to/from rupees; all Firestore fields are native values.
@@ -31,6 +31,23 @@ export function fromRupees(value) {
 const formatted=paise=>paise===null?'Not entered':`${paise<0?'-':''}₹${(Math.abs(paise)/100).toFixed(2)}`;
 const amountFields=paise=>({amountInRupees:toRupees(paise),amountFormatted:formatted(paise)});
 const base=recordType=>({storageVersion:STORAGE_VERSION,recordType,currency:'INR'});
+const closureAmounts={expectedSavings:'expectedClosingSavingsInRupees',expectedExpenses:'expectedExpensesInRupees',actualCash:'actualClosingCashInRupees',actualBank:'actualClosingBankBalanceInRupees'};
+const snapshotAmounts={...closureAmounts,investment:'closingInvestmentsInRupees',lent:'closingMoneyLentInRupees',held:'closingMoneyBorrowedOrHeldInRupees',
+  calculatedCash:'calculatedCashBeforeAdjustmentInRupees',calculatedBank:'calculatedBankBeforeAdjustmentInRupees',recordedCash:'cashAdjustmentInRupees',recordedBank:'bankAdjustmentInRupees',
+  calculatedSavings:'calculatedClosingSavingsInRupees',actualSavings:'actualClosingSavingsInRupees',savingsDifference:'savingsDifferenceInRupees',
+  cashShortfall:'cashShortfallInRupees',bankShortfall:'bankShortfallInRupees',cashExcess:'cashExcessInRupees',bankExcess:'bankExcessInRupees',
+  unaccounted:'unaccountedAmountInRupees',recordedUnaccounted:'recordedUnaccountedExpenseInRupees',remainingUnaccounted:'remainingUnaccountedInRupees',
+  expensesBeforeAdjustment:'recordedExpensesBeforeAdjustmentInRupees',actualExpenses:'actualExpensesInRupees',expensesDifference:'expensesDifferenceInRupees'};
+function encodeAmounts(value,mapping) {
+  const result={...value};
+  for(const [key,field] of Object.entries(mapping))if(Object.hasOwn(result,key)){result[field]=toRupees(result[key]);delete result[key];}
+  return result;
+}
+function decodeAmounts(value,mapping) {
+  const result={...value};
+  for(const [key,field] of Object.entries(mapping))if(Object.hasOwn(result,field)){result[key]=fromRupees(result[field]);delete result[field];}
+  return result;
+}
 export function encodeState(state) {
   if(state.version!==3)throw new Error('Unsupported website ledger version.');
   const records=new Map();
@@ -47,7 +64,7 @@ export function encodeState(state) {
   });
   for(const [key,m] of Object.entries(state.months).sort(([a],[b])=>a.localeCompare(b))) {
     checkMonth(key);
-    const {cash,bank,tentative,budgets,carryOverrides,carryReset,carryBoundaryAdjustment,transactions,investment,moneyEntries,...extra}=m;
+    const {cash,bank,tentative,budgets,carryOverrides,carryReset,carryBoundaryAdjustment,transactions,investment,moneyEntries,closure,...extra}=m;
     add(`month__${key}`,{...extra,...base('monthlyBalances'),month:key,
       openingCashInRupees:toRupees(cash),openingCashFormatted:formatted(cash),
       openingBankBalanceInRupees:toRupees(bank),openingBankBalanceFormatted:formatted(bank),
@@ -56,6 +73,11 @@ export function encodeState(state) {
       ...(carryBoundaryAdjustment?{carryForwardBoundaryAdjustmentInRupees:Object.fromEntries(
         Object.entries(carryBoundaryAdjustment).map(([id,amount])=>[id,toRupees(amount)])
       )}:{})});
+    if(closure) {
+      const {snapshot,...inputs}=closure;
+      add(`month-end-closure__${key}`,{...base('monthEndClosure'),month:key,...encodeAmounts(inputs,closureAmounts),
+        ...(snapshot?{snapshot:encodeAmounts(snapshot,snapshotAmounts)}:{})});
+    }
     investment.forEach((row,position)=>{
       const {id,amount,...rest}=row;
       add(`investment__${key}__${safeId(id)}`,{...rest,...base('investment'),month:key,investmentId:id,position,...amountFields(amount)});
@@ -117,7 +139,15 @@ export function decodeState(records) {
     if(['databaseInformation','monthlyBalances'].includes(type))continue;
     if(!Number.isSafeInteger(position)||position<0)throw new Error('A Firebase record has an invalid ordering field.');
     const rest=clean(fields);
-    if(type==='budgetReference') {
+    if(type==='monthEndClosure') {
+      const {month,snapshot,...inputs}=rest;
+      checkMonth(month);
+      if(!state.months[month]||state.months[month].closure)throw new Error('A closure is missing its month or is duplicated. Existing records have been kept.');
+      const closure=decodeAmounts(inputs,closureAmounts);
+      if(!['open','closed'].includes(closure.status)||Object.keys(closureAmounts).some(key=>!Object.hasOwn(closure,key)))throw new Error('A month-end closure is incomplete. Existing records have been kept.');
+      if(snapshot)closure.snapshot=decodeAmounts(snapshot,snapshotAmounts);
+      state.months[month].closure=closure;
+    } else if(type==='budgetReference') {
       const {categoryId,...details}=rest;
       reference.push({position,value:{...details,id:categoryId,amount:fromRupees(fields.amountInRupees)}});
     } else if(type==='investment') {
